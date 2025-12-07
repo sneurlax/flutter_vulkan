@@ -1,0 +1,23 @@
+name: flutter_vulkan_example
+description: "Demonstrates how to use the flutter_vulkan plugin."
+publish_to: 'none'
+
+environment:
+  sdk: ^3.10.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_vulkan:
+    path: ../
+  ffi: ^2.1.3
+
+dev_dependencies:
+  integration_test:
+    sdk: flutter
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
