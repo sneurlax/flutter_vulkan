@@ -1,6 +1,10 @@
 #ifndef COMMON_H
 #define COMMON_H
 
+#ifdef __APPLE__
+    #define _IS_MACOS_ 1
+#endif
+
 #ifdef __linux__
     #define _IS_LINUX_ 1
 #endif
@@ -29,6 +33,30 @@ static VulkanPluginContext ctx_f = {
         nullptr,
         0,
         0};
+
+#endif
+
+#ifdef _IS_MACOS_
+#include <iostream>
+#include <cstdint>
+#define LOGD(TAG,...) printf(TAG),printf(" "),printf(__VA_ARGS__),printf("\n");fflush(stdout);
+
+#define FFI_PLUGIN_EXPORT __attribute__((visibility("default"))) __attribute__((used))
+
+typedef struct flutter_vulkan_plugin_context
+{
+    uint8_t *buffer;
+    int width;
+    int height;
+    void (*markFrameAvailable)(void *registryRef);
+    void *registryRef;
+} VulkanPluginContext;
+static VulkanPluginContext ctx_f = {
+        nullptr,
+        0,
+        0,
+        nullptr,
+        nullptr};
 
 #endif
 
