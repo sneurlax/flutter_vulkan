@@ -67,6 +67,11 @@ bool VulkanContext::createInstance() {
     }
 #endif
 
+#ifdef __APPLE__
+    // MoltenVK direct linking: no loader extensions needed
+    createInfo.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+#endif
+
     VkResult result = vkCreateInstance(&createInfo, nullptr, &instance);
     if (result != VK_SUCCESS) {
         LOGD(LOG_TAG_VK, "Failed to create Vulkan instance: %d", result);
@@ -124,6 +129,12 @@ bool VulkanContext::createLogicalDevice() {
     createInfo.queueCreateInfoCount = 1;
     createInfo.pQueueCreateInfos = &queueCreateInfo;
     createInfo.pEnabledFeatures = &deviceFeatures;
+
+#ifdef __APPLE__
+    const char* deviceExtensions[] = { "VK_KHR_portability_subset" };
+    createInfo.enabledExtensionCount = 1;
+    createInfo.ppEnabledExtensionNames = deviceExtensions;
+#endif
 
     VkResult result = vkCreateDevice(physicalDevice, &createInfo, nullptr, &device);
     if (result != VK_SUCCESS) {
