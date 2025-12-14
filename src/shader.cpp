@@ -6,6 +6,13 @@
 
 #define LOG_TAG_SHADER "NATIVE SHADER"
 
+#ifdef _IS_MACOS_
+// macOS CVPixelBuffer uses BGRA format
+#define FLUTTER_VK_COLOR_FORMAT VK_FORMAT_B8G8R8A8_UNORM
+#else
+#define FLUTTER_VK_COLOR_FORMAT FLUTTER_VK_COLOR_FORMAT
+#endif
+
 Shader::Shader(VulkanPluginContext *pluginCtx, VulkanContext *vkCtx)
         : self(pluginCtx),
           vkCtx(vkCtx),
@@ -88,7 +95,7 @@ uint32_t Shader::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags prope
 
 bool Shader::createRenderPass() {
     VkAttachmentDescription colorAttachment{};
-    colorAttachment.format = VK_FORMAT_R8G8B8A8_UNORM;
+    colorAttachment.format = FLUTTER_VK_COLOR_FORMAT;
     colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
     colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -270,7 +277,7 @@ bool Shader::createOffscreenResources() {
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
-    imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+    imageInfo.format = FLUTTER_VK_COLOR_FORMAT;
     imageInfo.extent = {(uint32_t)width, (uint32_t)height, 1};
     imageInfo.mipLevels = 1;
     imageInfo.arrayLayers = 1;
@@ -300,7 +307,7 @@ bool Shader::createOffscreenResources() {
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = colorImage;
     viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+    viewInfo.format = FLUTTER_VK_COLOR_FORMAT;
     viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     viewInfo.subresourceRange.baseMipLevel = 0;
     viewInfo.subresourceRange.levelCount = 1;
@@ -642,8 +649,14 @@ void Shader::drawFrame() {
     vkQueueWaitIdle(vkCtx->graphicsQueue);
 
     // Copy pixels to Flutter texture buffer
+#ifdef _IS_LINUX_
     memcpy(self->myTexture->buffer, stagingMapped, width * height * 4);
-
     fl_texture_registrar_mark_texture_frame_available(
         self->texture_registrar, self->texture);
+#elif defined(_IS_MACOS_)
+    memcpy(self->buffer, stagingMapped, width * height * 4);
+    if (self->markFrameAvailable) {
+        self->markFrameAvailable(self->registryRef);
+    }
+#endif
 }
