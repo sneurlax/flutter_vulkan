@@ -5,9 +5,9 @@
 #include "uniform_queue.h"
 #include "renderer.h"
 
-void deleteRenderer();
-void createRenderer(VulkanPluginContext *textureStruct);
-Renderer *getRenderer();
+extern "C" void deleteRenderer();
+extern "C" void createRenderer(VulkanPluginContext *textureStruct);
+extern "C" void *getRenderer();
 
 extern "C" FFI_PLUGIN_EXPORT bool rendererStatus();
 extern "C" FFI_PLUGIN_EXPORT void getTextureSize(int32_t *width, int32_t *height);

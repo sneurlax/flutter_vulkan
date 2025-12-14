@@ -8,7 +8,7 @@ Renderer *renderer = nullptr;
 
 #define LOG_TAG_FFI "NATIVE FFI"
 
-void deleteRenderer() {
+extern "C" void deleteRenderer() {
     if (renderer != nullptr) {
         if (renderer->isLooping()) {
             while (bool b = renderer->isLooping()) renderer->stop();
@@ -18,12 +18,12 @@ void deleteRenderer() {
     }
 }
 
-void createRenderer(VulkanPluginContext *textureStruct) {
+extern "C" void createRenderer(VulkanPluginContext *textureStruct) {
     deleteRenderer();
     renderer = new Renderer(textureStruct);
 }
 
-Renderer *getRenderer() { return renderer; }
+extern "C" void *getRenderer() { return (void *)renderer; }
 
 extern "C" FFI_PLUGIN_EXPORT bool rendererStatus() {
     if (renderer == nullptr) return false;
