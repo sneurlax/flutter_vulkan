@@ -24,3 +24,5 @@ flutter:
     platforms:
       linux:
         pluginClass: FlutterVulkanPlugin
+      macos:
+        pluginClass: FlutterVulkanPlugin
