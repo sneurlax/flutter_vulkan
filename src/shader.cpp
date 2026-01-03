@@ -10,7 +10,7 @@
 // macOS CVPixelBuffer uses BGRA format
 #define FLUTTER_VK_COLOR_FORMAT VK_FORMAT_B8G8R8A8_UNORM
 #else
-#define FLUTTER_VK_COLOR_FORMAT FLUTTER_VK_COLOR_FORMAT
+#define FLUTTER_VK_COLOR_FORMAT VK_FORMAT_R8G8B8A8_UNORM
 #endif
 
 Shader::Shader(VulkanPluginContext *pluginCtx, VulkanContext *vkCtx)
