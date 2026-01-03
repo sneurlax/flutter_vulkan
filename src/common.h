@@ -5,8 +5,32 @@
     #define _IS_MACOS_ 1
 #endif
 
-#ifdef __linux__
+#ifdef __ANDROID__
+    #define _IS_ANDROID_ 1
+#elif defined(__linux__)
     #define _IS_LINUX_ 1
+#endif
+
+#ifdef _IS_ANDROID_
+#include <android/native_window.h>
+#include <android/log.h>
+#include <iostream>
+#include <cstdint>
+#define LOGD(TAG,...) __android_log_print(ANDROID_LOG_DEBUG,TAG,__VA_ARGS__);
+
+#define FFI_PLUGIN_EXPORT __attribute__((visibility("default"))) __attribute__((used))
+
+typedef struct flutter_vulkan_plugin_context
+{
+    ANativeWindow *window;
+    int width;
+    int height;
+} VulkanPluginContext;
+static VulkanPluginContext ctx_f = {
+        nullptr,
+        0,
+        0};
+
 #endif
 
 #ifdef _IS_LINUX_

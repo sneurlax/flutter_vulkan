@@ -649,7 +649,19 @@ void Shader::drawFrame() {
     vkQueueWaitIdle(vkCtx->graphicsQueue);
 
     // Copy pixels to Flutter texture buffer
-#ifdef _IS_LINUX_
+#ifdef _IS_ANDROID_
+    ANativeWindow_Buffer nBuf;
+    if (ANativeWindow_lock(self->window, &nBuf, nullptr) == 0) {
+        auto *src = static_cast<uint8_t *>(stagingMapped);
+        auto *dst = static_cast<uint8_t *>(nBuf.bits);
+        int srcStride = width * 4;
+        int dstStride = nBuf.stride * 4;
+        for (int y = 0; y < height; y++) {
+            memcpy(dst + y * dstStride, src + y * srcStride, srcStride);
+        }
+        ANativeWindow_unlockAndPost(self->window);
+    }
+#elif defined(_IS_LINUX_)
     memcpy(self->myTexture->buffer, stagingMapped, width * height * 4);
     fl_texture_registrar_mark_texture_frame_available(
         self->texture_registrar, self->texture);
