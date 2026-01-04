@@ -22,6 +22,9 @@ dev_dependencies:
 flutter:
   plugin:
     platforms:
+      android:
+        package: com.example.flutter_vulkan
+        pluginClass: FlutterVulkanPlugin
       linux:
         pluginClass: FlutterVulkanPlugin
       macos:

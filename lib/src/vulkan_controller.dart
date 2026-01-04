@@ -16,7 +16,9 @@ class VulkanController {
   late final FlutterVulkanFfi vulkanFFI;
 
   initializeVulkan() {
-    nativeLib = ffi.DynamicLibrary.process();
+    nativeLib = Platform.isAndroid
+        ? ffi.DynamicLibrary.open('libflutter_vulkan_plugin.so')
+        : ffi.DynamicLibrary.process();
     vulkanFFI = FlutterVulkanFfi.fromLookup(nativeLib.lookup);
     vulkanPlugin = FlutterVulkan();
   }
