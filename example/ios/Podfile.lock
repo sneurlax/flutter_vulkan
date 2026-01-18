@@ -1,0 +1,28 @@
+PODS:
+  - Flutter (1.0.0)
+  - flutter_vulkan (0.1.0):
+    - Flutter
+  - integration_test (0.0.1):
+    - Flutter
+
+DEPENDENCIES:
+  - Flutter (from `Flutter`)
+  - flutter_vulkan (from `.symlinks/plugins/flutter_vulkan/ios`)
+  - integration_test (from `.symlinks/plugins/integration_test/ios`)
+
+EXTERNAL SOURCES:
+  Flutter:
+    :path: Flutter
+  flutter_vulkan:
+    :path: ".symlinks/plugins/flutter_vulkan/ios"
+  integration_test:
+    :path: ".symlinks/plugins/integration_test/ios"
+
+SPEC CHECKSUMS:
+  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  flutter_vulkan: 5021c4d1429f838e69b2170f6c231fc2c0b0df5f
+  integration_test: 4a889634ef21a45d28d50d622cf412dc6d9f586e
+
+PODFILE CHECKSUM: 9a8fc229bed498e41855a3eaf761fe2ff9f4ed6a
+
+COCOAPODS: 1.16.2
