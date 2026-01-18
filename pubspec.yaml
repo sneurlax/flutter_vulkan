@@ -29,3 +29,5 @@ flutter:
         pluginClass: FlutterVulkanPlugin
       macos:
         pluginClass: FlutterVulkanPlugin
+      ios:
+        pluginClass: FlutterVulkanPlugin
