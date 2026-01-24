@@ -4,26 +4,11 @@ import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
 import 'package:flutter/material.dart';
 
-enum PointerEventType {
-  onPointerDown,
-  onPointerMove,
-  onPointerUp,
-}
+import 'vulkan_renderer.dart';
 
-enum UniformType {
-  uniformBool,
-  uniformInt,
-  uniformFloat,
-  uniformVec2,
-  uniformVec3,
-  uniformVec4,
-  uniformMat2,
-  uniformMat3,
-  uniformMat4,
-  uniformSampler2D,
-}
+export 'vulkan_renderer.dart' show PointerEventType, UniformType;
 
-class FlutterVulkanFfi {
+class FlutterVulkanFfi implements VulkanRenderer {
   final ffi.Pointer<T> Function<T extends ffi.NativeType>(String symbolName)
       _lookup;
 
@@ -35,6 +20,7 @@ class FlutterVulkanFfi {
           lookup)
       : _lookup = lookup;
 
+  @override
   bool rendererStatus() {
     return _rendererStatus() == 0 ? false : true;
   }
@@ -43,6 +29,7 @@ class FlutterVulkanFfi {
       _lookup<ffi.NativeFunction<ffi.Int Function()>>('rendererStatus');
   late final _rendererStatus = _rendererStatusPtr.asFunction<int Function()>();
 
+  @override
   Size getTextureSize() {
     ffi.Pointer<ffi.Int32> w = calloc(ffi.sizeOf<ffi.Int32>());
     ffi.Pointer<ffi.Int32> h = calloc(ffi.sizeOf<ffi.Int32>());
@@ -62,6 +49,7 @@ class FlutterVulkanFfi {
   late final _textureSize = _textureSizePtr.asFunction<
       int Function(ffi.Pointer<ffi.Int32>, ffi.Pointer<ffi.Int32>)>();
 
+  @override
   void startThread() {
     return _startThread();
   }
@@ -70,6 +58,7 @@ class FlutterVulkanFfi {
       _lookup<ffi.NativeFunction<ffi.Void Function()>>('startThread');
   late final _startThread = _startThreadPtr.asFunction<void Function()>();
 
+  @override
   void stopThread() {
     return _stopThread();
   }
@@ -78,6 +67,7 @@ class FlutterVulkanFfi {
       _lookup<ffi.NativeFunction<ffi.Void Function()>>('stopThread');
   late final _stopThread = _stopThreadPtr.asFunction<void Function()>();
 
+  @override
   String setShader(
     bool isContinuous,
     String vertexShader,
@@ -100,6 +90,7 @@ class FlutterVulkanFfi {
       ffi.Pointer<ffi.Char> Function(
           int, ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>)>();
 
+  @override
   String setShaderToy(String fragmentShader) {
     return _setShaderToy(
       fragmentShader.toNativeUtf8().cast<ffi.Char>(),
@@ -113,6 +104,7 @@ class FlutterVulkanFfi {
   late final _setShaderToy = _setShaderToyPtr
       .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)>();
 
+  @override
   String getVertexShader() {
     ffi.Pointer<ffi.Char> vs = _getVertexShader();
     return vs.cast<Utf8>().toDartString();
@@ -124,6 +116,7 @@ class FlutterVulkanFfi {
   late final _getVertexShader =
       _getVertexShaderPtr.asFunction<ffi.Pointer<ffi.Char> Function()>();
 
+  @override
   String getFragmentShader() {
     ffi.Pointer<ffi.Char> fs = _getFragmentShader();
     return fs.cast<Utf8>().toDartString();
@@ -135,6 +128,7 @@ class FlutterVulkanFfi {
   late final _getFragmentShader =
       _getFragmentShaderPtr.asFunction<ffi.Pointer<ffi.Char> Function()>();
 
+  @override
   void addShaderToyUniforms() {
     return _addShaderToyUniforms();
   }
@@ -144,6 +138,7 @@ class FlutterVulkanFfi {
   late final _addShaderToyUniforms =
       _addShaderToyUniformsPtr.asFunction<void Function()>();
 
+  @override
   void setMousePosition(
     Offset startingPos,
     Offset pos,
@@ -170,6 +165,7 @@ class FlutterVulkanFfi {
   late final _setMousePosition = _setMousePositionPtr.asFunction<
       void Function(double, double, double, double, double, double)>();
 
+  @override
   double getFps() {
     return _getFps();
   }
@@ -179,6 +175,7 @@ class FlutterVulkanFfi {
   late final _getFps = _getFpsPtr.asFunction<double Function()>();
 
   // Uniform add methods
+  @override
   bool addBoolUniform(String name, bool val) {
     ffi.Pointer<ffi.Bool> valT = calloc(ffi.sizeOf<ffi.Bool>());
     valT.value = val;
@@ -191,6 +188,7 @@ class FlutterVulkanFfi {
     return ret == 0 ? false : true;
   }
 
+  @override
   bool addIntUniform(String name, int val) {
     ffi.Pointer<ffi.Int32> valT = calloc(ffi.sizeOf<ffi.Int32>());
     valT.value = val;
@@ -203,6 +201,7 @@ class FlutterVulkanFfi {
     return ret == 0 ? false : true;
   }
 
+  @override
   bool addFloatUniform(String name, double val) {
     ffi.Pointer<ffi.Float> valT = calloc(ffi.sizeOf<ffi.Float>());
     valT.value = val;
@@ -215,6 +214,7 @@ class FlutterVulkanFfi {
     return ret == 0 ? false : true;
   }
 
+  @override
   bool addVec2Uniform(String name, List<double> val) {
     assert(val.length == 2);
     ffi.Pointer<ffi.Float> valT = calloc(ffi.sizeOf<ffi.Float>() * 2);
@@ -230,6 +230,7 @@ class FlutterVulkanFfi {
     return ret == 0 ? false : true;
   }
 
+  @override
   bool addVec3Uniform(String name, List<double> val) {
     assert(val.length == 3);
     ffi.Pointer<ffi.Float> valT = calloc(ffi.sizeOf<ffi.Float>() * 3);
@@ -245,6 +246,7 @@ class FlutterVulkanFfi {
     return ret == 0 ? false : true;
   }
 
+  @override
   bool addVec4Uniform(String name, List<double> val) {
     assert(val.length == 4);
     ffi.Pointer<ffi.Float> valT = calloc(ffi.sizeOf<ffi.Float>() * 4);
@@ -260,6 +262,7 @@ class FlutterVulkanFfi {
     return ret == 0 ? false : true;
   }
 
+  @override
   bool addMat2Uniform(String name, List<double> val) {
     assert(val.length == 4);
     ffi.Pointer<ffi.Float> valT = calloc(ffi.sizeOf<ffi.Float>() * 4);
@@ -275,6 +278,7 @@ class FlutterVulkanFfi {
     return ret == 0 ? false : true;
   }
 
+  @override
   bool addMat3Uniform(String name, List<double> val) {
     assert(val.length == 9);
     ffi.Pointer<ffi.Float> valT = calloc(ffi.sizeOf<ffi.Float>() * 9);
@@ -290,6 +294,7 @@ class FlutterVulkanFfi {
     return ret == 0 ? false : true;
   }
 
+  @override
   bool addMat4Uniform(String name, List<double> val) {
     assert(val.length == 16);
     ffi.Pointer<ffi.Float> valT = calloc(ffi.sizeOf<ffi.Float>() * 16);
@@ -312,6 +317,7 @@ class FlutterVulkanFfi {
   late final _addUniform = _addUniformPtr.asFunction<
       int Function(ffi.Pointer<ffi.Char>, int, ffi.Pointer<ffi.Void>)>();
 
+  @override
   bool removeUniform(String name) {
     int ret = _removeUniform(
       name.toNativeUtf8().cast<ffi.Char>(),
@@ -325,6 +331,7 @@ class FlutterVulkanFfi {
   late final _removeUniform =
       _removeUniformPtr.asFunction<int Function(ffi.Pointer<ffi.Char>)>();
 
+  @override
   bool addSampler2DUniform(
     String name,
     int width,
@@ -353,6 +360,7 @@ class FlutterVulkanFfi {
   late final _addSampler2DUniform = _addSampler2DUniformPtr.asFunction<
       int Function(ffi.Pointer<ffi.Char>, int, int, ffi.Pointer<ffi.Void>)>();
 
+  @override
   bool replaceSampler2DUniform(
     String name,
     int width,
@@ -382,6 +390,7 @@ class FlutterVulkanFfi {
       int Function(ffi.Pointer<ffi.Char>, int, int, ffi.Pointer<ffi.Void>)>();
 
   // Uniform set methods
+  @override
   bool setBoolUniform(String name, bool val) {
     ffi.Pointer<ffi.Bool> valT = calloc(ffi.sizeOf<ffi.Bool>());
     valT.value = val;
@@ -393,6 +402,7 @@ class FlutterVulkanFfi {
     return ret == 0 ? false : true;
   }
 
+  @override
   bool setIntUniform(String name, int val) {
     ffi.Pointer<ffi.Int32> valT = calloc(ffi.sizeOf<ffi.Int32>());
     valT.value = val;
@@ -404,6 +414,7 @@ class FlutterVulkanFfi {
     return ret == 0 ? false : true;
   }
 
+  @override
   bool setFloatUniform(String name, double val) {
     ffi.Pointer<ffi.Float> valT = calloc(ffi.sizeOf<ffi.Float>());
     valT.value = val;
@@ -415,6 +426,7 @@ class FlutterVulkanFfi {
     return ret == 0 ? false : true;
   }
 
+  @override
   bool setVec2Uniform(String name, List<double> val) {
     ffi.Pointer<ffi.Float> valT = calloc(ffi.sizeOf<ffi.Float>() * 2);
     valT[0] = val[0];
@@ -427,6 +439,7 @@ class FlutterVulkanFfi {
     return ret == 0 ? false : true;
   }
 
+  @override
   bool setVec3Uniform(String name, List<double> val) {
     ffi.Pointer<ffi.Float> valT = calloc(ffi.sizeOf<ffi.Float>() * 3);
     valT[0] = val[0];
@@ -440,6 +453,7 @@ class FlutterVulkanFfi {
     return ret == 0 ? false : true;
   }
 
+  @override
   bool setVec4Uniform(String name, List<double> val) {
     ffi.Pointer<ffi.Float> valT = calloc(ffi.sizeOf<ffi.Float>() * 4);
     valT[0] = val[0];
@@ -454,6 +468,7 @@ class FlutterVulkanFfi {
     return ret == 0 ? false : true;
   }
 
+  @override
   bool setMat2Uniform(String name, List<double> val) {
     ffi.Pointer<ffi.Float> valT = calloc(ffi.sizeOf<ffi.Float>() * 4);
     for (int i = 0; i < 4; ++i) valT[i] = val[i];
@@ -465,6 +480,7 @@ class FlutterVulkanFfi {
     return ret == 0 ? false : true;
   }
 
+  @override
   bool setMat3Uniform(String name, List<double> val) {
     ffi.Pointer<ffi.Float> valT = calloc(ffi.sizeOf<ffi.Float>() * 9);
     for (int i = 0; i < 9; ++i) valT[i] = val[i];
@@ -476,6 +492,7 @@ class FlutterVulkanFfi {
     return ret == 0 ? false : true;
   }
 
+  @override
   bool setMat4Uniform(String name, List<double> val) {
     ffi.Pointer<ffi.Float> valT = calloc(ffi.sizeOf<ffi.Float>() * 16);
     for (int i = 0; i < 16; ++i) valT[i] = val[i];
@@ -487,6 +504,7 @@ class FlutterVulkanFfi {
     return ret == 0 ? false : true;
   }
 
+  @override
   bool setSampler2DUniform(String name, Uint8List val) {
     ffi.Pointer<ffi.Int8> valT = calloc(ffi.sizeOf<ffi.Int8>() * val.length);
     for (int i = 0; i < val.length; ++i) {
