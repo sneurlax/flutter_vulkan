@@ -1,3 +1,6 @@
+#include "common.h"
+#if !FLUTTER_VULKAN_SIMULATOR_STUB
+
 #include "uniform_queue.h"
 
 #include <iterator>
@@ -212,3 +215,5 @@ std::vector<std::pair<int, Sampler2D*>> UniformQueue::getAllSampler2DTextures()
     }
     return result;
 }
+
+#endif // !FLUTTER_VULKAN_SIMULATOR_STUB

@@ -1,3 +1,6 @@
+#include "common.h"
+#if !FLUTTER_VULKAN_SIMULATOR_STUB
+
 #include "renderer.h"
 
 #include <chrono>
@@ -135,3 +138,5 @@ void Renderer::loop() {
     }
     loopRunning = false;
 }
+
+#endif // !FLUTTER_VULKAN_SIMULATOR_STUB

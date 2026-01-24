@@ -1,3 +1,6 @@
+#include "common.h"
+#if !FLUTTER_VULKAN_SIMULATOR_STUB
+
 #include "shader.h"
 
 #include <ctime>
@@ -660,3 +663,5 @@ void Shader::drawFrame() {
     }
 #endif
 }
+
+#endif // !FLUTTER_VULKAN_SIMULATOR_STUB

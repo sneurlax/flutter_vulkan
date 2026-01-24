@@ -21,14 +21,9 @@ Pod::Spec.new do |s|
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
     'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) _IS_IOS_=1',
     'HEADER_SEARCH_PATHS' => '$(PODS_TARGET_SRCROOT)/src $(PODS_TARGET_SRCROOT)/third_party/shaderc/include $(PODS_TARGET_SRCROOT)/third_party/vulkan/include $(PODS_TARGET_SRCROOT)/Classes/include',
-    'OTHER_LDFLAGS' => '-lc++ -lMoltenVK -lshaderc_combined',
-    'LIBRARY_SEARCH_PATHS' => '$(PODS_TARGET_SRCROOT)/Libraries',
-    'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'arm64',
+    'OTHER_LDFLAGS[sdk=iphoneos*]' => '-lc++ -lMoltenVK -lshaderc_combined',
+    'LIBRARY_SEARCH_PATHS[sdk=iphoneos*]' => '$(PODS_TARGET_SRCROOT)/Libraries',
     'SWIFT_INCLUDE_PATHS' => '$(PODS_TARGET_SRCROOT)/Classes/include',
-  }
-
-  s.user_target_xcconfig = {
-    'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'arm64',
   }
 
   s.swift_version = '5.0'

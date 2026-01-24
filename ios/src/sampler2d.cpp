@@ -1,3 +1,6 @@
+#include "common.h"
+#if !FLUTTER_VULKAN_SIMULATOR_STUB
+
 #include "sampler2d.h"
 #include <cstring>
 #include <stdexcept>
@@ -221,3 +224,5 @@ void Sampler2D::destroyVulkanTexture(VkDevice device)
         imageMemory = VK_NULL_HANDLE;
     }
 }
+
+#endif // !FLUTTER_VULKAN_SIMULATOR_STUB

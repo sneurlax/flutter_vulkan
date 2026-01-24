@@ -1,3 +1,6 @@
+#include "common.h"
+#if !FLUTTER_VULKAN_SIMULATOR_STUB
+
 #include "vulkan_context.h"
 #include <cstring>
 #include <iostream>
@@ -159,3 +162,5 @@ bool VulkanContext::createCommandPool() {
     }
     return true;
 }
+
+#endif // !FLUTTER_VULKAN_SIMULATOR_STUB
