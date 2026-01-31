@@ -1,8 +1,8 @@
-import 'dart:ffi' as ffi;
-import 'dart:io';
-
 import 'flutter_vulkan_api.dart';
-import 'flutter_vulkan_ffi.dart';
+import 'vulkan_renderer.dart';
+
+import 'vulkan_controller_native.dart'
+    if (dart.library.js_interop) 'web/vulkan_controller_web.dart';
 
 class VulkanController {
   static VulkanController? _instance;
@@ -11,15 +11,11 @@ class VulkanController {
 
   VulkanController._();
 
-  late ffi.DynamicLibrary nativeLib;
   late final FlutterVulkan vulkanPlugin;
-  late final FlutterVulkanFfi vulkanFFI;
+  late final VulkanRenderer renderer;
 
   initializeVulkan() {
-    nativeLib = Platform.isAndroid
-        ? ffi.DynamicLibrary.open('libflutter_vulkan_plugin.so')
-        : ffi.DynamicLibrary.process();
-    vulkanFFI = FlutterVulkanFfi.fromLookup(nativeLib.lookup);
-    vulkanPlugin = FlutterVulkan();
+    renderer = createRenderer();
+    vulkanPlugin = createVulkanPlugin();
   }
 }
