@@ -92,10 +92,10 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
               }
 
               /// Start renderer thread
-              VulkanController().vulkanFFI.startThread();
+              VulkanController().renderer.startThread();
 
               /// Set the fragment shader
-              VulkanController().vulkanFFI.setShaderToy(fShader);
+              VulkanController().renderer.setShaderToy(fShader);
 
               /// build the texture widget
               return VulkanTexture(id: snapshot.data!);
