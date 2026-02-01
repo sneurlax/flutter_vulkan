@@ -10,9 +10,12 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_web_plugins:
+    sdk: flutter
   plugin_platform_interface: ^2.0.2
   ffi: ^2.1.3
   image: ^4.0.13
+  web: ^1.1.0
 
 dev_dependencies:
   flutter_test:
@@ -31,3 +34,6 @@ flutter:
         pluginClass: FlutterVulkanPlugin
       ios:
         pluginClass: FlutterVulkanPlugin
+      web:
+        pluginClass: FlutterVulkanWeb
+        fileName: src/flutter_vulkan_web_plugin.dart
