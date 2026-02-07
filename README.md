@@ -1,15 +1,41 @@
 # flutter_vulkan
 
-A new Flutter plugin project.
+Flutter plugin for GPU-accelerated shader rendering. Runs GLSL fragment shaders
+(including ShaderToy-compatible shaders) on all major platforms.
 
-## Getting Started
+| Platform | Backend | Status |
+|----------|---------|--------|
+| Linux    | Vulkan  | ✓      |
+| macOS    | MoltenVK | ✓    |
+| iOS      | MoltenVK | ✓    |
+| Android  | Vulkan  | ✓      |
+| Web      | WebGL2  | ✓      |
 
-This project is a starting point for a Flutter
-[plug-in package](https://flutter.dev/to/develop-plugins),
-a specialized package that includes platform-specific implementation code for
-Android and/or iOS.
+## Usage
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```dart
+import 'package:flutter_vulkan/flutter_vulkan.dart';
 
+// Initialize once at startup
+VulkanController().initializeVulkan();
+
+// Create a surface and render
+final textureId = await VulkanController().vulkanPlugin.createSurface(width, height);
+VulkanController().renderer.setShaderToy(glslSource);
+VulkanController().renderer.startThread();
+
+// Display with the VulkanTexture widget
+VulkanTexture(id: textureId)
+```
+
+## Platform requirements
+
+- **Linux**: Vulkan driver, `libshaderc` (bundled)
+- **macOS 11+**: arm64 only (Apple Silicon)
+- **iOS 13+**: arm64 only
+- **Android**: `minSdk 24`, arm64-v8a, Vulkan-capable device
+- **Web**: Browser with WebGL2 support
+
+## License
+
+BSD 3-Clause. See [LICENSE](LICENSE).

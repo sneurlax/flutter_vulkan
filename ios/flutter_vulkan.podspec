@@ -1,13 +1,13 @@
 Pod::Spec.new do |s|
   s.name             = 'flutter_vulkan'
-  s.version          = '0.1.0'
+  s.version          = '0.0.1'
   s.summary          = 'Flutter plugin to bind a Texture widget to a Vulkan context via MoltenVK.'
   s.description      = <<-DESC
   Flutter plugin for Vulkan-based shader rendering using MoltenVK on iOS.
                        DESC
-  s.homepage         = 'https://github.com/example/flutter_vulkan'
+  s.homepage         = 'https://github.com/sneurlax/flutter_vulkan'
   s.license          = { :file => '../LICENSE' }
-  s.author           = { 'flutter_vulkan' => 'example@example.com' }
+  s.author           = { 'sneurlax' => 'sneurlax@gmail.com' }
   s.source           = { :path => '.' }
 
   s.source_files = 'Classes/**/*.swift', 'Classes/include/**/*.h', 'src/**/*.{cpp,h}'

@@ -82,10 +82,10 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     return Scaffold(
       body: Center(
         child: SizedBox(
-          width: 400,
-          height: 300,
+          width: 640,
+          height: 480,
           child: FutureBuilder(
-            future: VulkanController().vulkanPlugin.createSurface(300, 200),
+            future: VulkanController().vulkanPlugin.createSurface(640, 480),
             builder: (_, snapshot) {
               if (snapshot.hasError || !snapshot.hasData) {
                 return const SizedBox.shrink();
