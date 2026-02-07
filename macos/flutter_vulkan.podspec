@@ -20,7 +20,7 @@ Pod::Spec.new do |s|
     'DEFINES_MODULE' => 'YES',
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
     'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) _IS_MACOS_=1',
-    'HEADER_SEARCH_PATHS' => '$(PODS_TARGET_SRCROOT)/src $(PODS_TARGET_SRCROOT)/third_party/shaderc/include $(PODS_TARGET_SRCROOT)/third_party/vulkan/include $(PODS_TARGET_SRCROOT)/Classes/include',
+    'HEADER_SEARCH_PATHS' => '$(PODS_TARGET_SRCROOT)/src $(PODS_TARGET_SRCROOT)/../third_party/shaderc/include $(PODS_TARGET_SRCROOT)/../third_party/vulkan/include $(PODS_TARGET_SRCROOT)/Classes/include',
     'OTHER_LDFLAGS' => '-lc++ -lMoltenVK -lshaderc_combined',
     'LIBRARY_SEARCH_PATHS' => '$(PODS_TARGET_SRCROOT)/Libraries',
     'EXCLUDED_ARCHS[sdk=macosx*]' => 'x86_64',
