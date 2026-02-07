@@ -15,8 +15,6 @@ class VulkanTexture extends StatelessWidget {
   Widget build(BuildContext context) {
     Size twSize = Size.zero;
     Offset startingPos = Offset.zero;
-    var key = GlobalKey();
-
     return Listener(
       onPointerDown: (event) {
         startingPos = event.localPosition;
@@ -50,7 +48,6 @@ class VulkanTexture extends StatelessWidget {
         });
 
         return ColoredBox(
-          key: key,
           color: Colors.black,
           child: Texture(textureId: id),
         );
