@@ -1,7 +1,7 @@
 name: flutter_vulkan
 description: Flutter plugin to bind a Texture widget to a Vulkan context. Many ShaderToy shaders can be used
-version: 0.1.0
-homepage: https://github.com/example/flutter_vulkan
+version: 0.0.1
+homepage: https://github.com/sneurlax/flutter_vulkan
 
 environment:
   sdk: ^3.10.0
