@@ -1,5 +1,7 @@
 package com.example.flutter_vulkan
 
+import android.os.Handler
+import android.os.Looper
 import android.view.Surface
 import android.graphics.SurfaceTexture
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -51,9 +53,12 @@ class FlutterVulkanPlugin : FlutterPlugin, MethodCallHandler {
                 val newSurface = Surface(surfaceTexture)
                 surface = newSurface
 
-                nativeCreateSurface(newSurface, width, height)
-
-                result.success(entry.id())
+                val textureId = entry.id()
+                val mainHandler = Handler(Looper.getMainLooper())
+                Thread {
+                    nativeCreateSurface(newSurface, width, height)
+                    mainHandler.post { result.success(textureId) }
+                }.start()
             }
             else -> result.notImplemented()
         }
