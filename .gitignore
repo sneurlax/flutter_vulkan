@@ -1,6 +1,7 @@
 .dart_tool/
 .packages
 build/
+.cxx/
 *.iml
 .metadata
 pubspec.lock
