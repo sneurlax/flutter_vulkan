@@ -4,3 +4,4 @@ build/
 *.iml
 .metadata
 pubspec.lock
+Podfile.lock
