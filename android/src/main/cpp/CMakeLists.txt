@@ -39,3 +39,9 @@ add_library(shaderc STATIC IMPORTED)
 set_target_properties(shaderc PROPERTIES IMPORTED_LOCATION "${SHADERC_LIB}")
 target_include_directories(flutter_vulkan_plugin PRIVATE "${PLUGIN_SHADERC}/include")
 target_link_libraries(flutter_vulkan_plugin PRIVATE shaderc)
+
+# Release optimizations: -O2, hide internal symbols, strip, disable validation layers
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    target_compile_options(flutter_vulkan_plugin PRIVATE -O2 -DNDEBUG -fvisibility=hidden)
+    target_link_options(flutter_vulkan_plugin PRIVATE -Wl,--gc-sections -Wl,-s)
+endif()
