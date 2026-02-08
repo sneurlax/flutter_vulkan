@@ -27,17 +27,33 @@ target_link_libraries(flutter_vulkan_plugin PRIVATE Vulkan::Vulkan)
 # Android libs
 target_link_libraries(flutter_vulkan_plugin PRIVATE android log)
 
-# shaderc
-set(PLUGIN_SHADERC "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/shaderc")
-set(SHADERC_LIB "${PLUGIN_SHADERC}/lib/${ANDROID_ABI}/libshaderc.a")
+# shaderc — build from NDK sources via ndk-build
+include(ExternalProject)
 
-if(NOT EXISTS "${SHADERC_LIB}")
-    message(FATAL_ERROR "Could not find shaderc at ${SHADERC_LIB}. Build it with ndk-build from ${ANDROID_NDK}/sources/third_party/shaderc/.")
-endif()
+set(SHADERC_SRC "${ANDROID_NDK}/sources/third_party/shaderc")
+set(SHADERC_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaderc_build")
+set(SHADERC_OUTPUT "${SHADERC_BUILD_DIR}/libs/c++_shared/${ANDROID_ABI}/libshaderc.a")
+
+ExternalProject_Add(shaderc_build
+    SOURCE_DIR "${SHADERC_SRC}"
+    CONFIGURE_COMMAND ""
+    BUILD_COMMAND "${ANDROID_NDK}/ndk-build"
+        NDK_PROJECT_PATH=${SHADERC_BUILD_DIR}
+        APP_BUILD_SCRIPT=${SHADERC_SRC}/Android.mk
+        APP_ABI=${ANDROID_ABI}
+        APP_STL=c++_shared
+        APP_PLATFORM=android-${ANDROID_NATIVE_API_LEVEL}
+        libshaderc_combined
+        -j4
+    INSTALL_COMMAND ""
+    BUILD_BYPRODUCTS "${SHADERC_OUTPUT}"
+)
 
 add_library(shaderc STATIC IMPORTED)
-set_target_properties(shaderc PROPERTIES IMPORTED_LOCATION "${SHADERC_LIB}")
-target_include_directories(flutter_vulkan_plugin PRIVATE "${PLUGIN_SHADERC}/include")
+set_target_properties(shaderc PROPERTIES IMPORTED_LOCATION "${SHADERC_OUTPUT}")
+add_dependencies(shaderc shaderc_build)
+
+target_include_directories(flutter_vulkan_plugin PRIVATE "${SHADERC_SRC}/libshaderc/include")
 target_link_libraries(flutter_vulkan_plugin PRIVATE shaderc)
 
 # Release optimizations: -O2, hide internal symbols, strip, disable validation layers
