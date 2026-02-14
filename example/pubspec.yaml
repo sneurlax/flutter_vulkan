@@ -11,6 +11,8 @@ dependencies:
   flutter_vulkan:
     path: ../
   ffi: ^2.1.3
+  flutter_riverpod: ^2.6.1
+  image: ^4.0.13
 
 dev_dependencies:
   integration_test:
@@ -21,3 +23,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  assets:
+    - assets/
