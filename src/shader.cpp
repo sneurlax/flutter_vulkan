@@ -536,6 +536,11 @@ std::string Shader::initShader() {
     return compileError;
 }
 
+void Shader::refreshTextures() {
+    uniformsList.setAllSampler2D();
+    updateDescriptorSets();
+}
+
 std::string Shader::initShaderToy() {
     // Full-screen triangle vertex shader (no vertex buffer needed)
     vertexSource =
