@@ -1,5 +1,5 @@
 #include "common.h"
-#if !FLUTTER_VULKAN_SIMULATOR_STUB
+#if \!FLUTTER_VULKAN_SIMULATOR_STUB
 
 #include "renderer.h"
 
@@ -102,7 +102,7 @@ void Renderer::loop() {
 
             case MSG_NEW_TEXTURE:
                 if (shader != nullptr) {
-                    shader->getUniforms().setAllSampler2D();
+                    shader->refreshTextures();
                 }
                 break;
 
@@ -139,4 +139,4 @@ void Renderer::loop() {
     loopRunning = false;
 }
 
-#endif // !FLUTTER_VULKAN_SIMULATOR_STUB
+#endif // \!FLUTTER_VULKAN_SIMULATOR_STUB

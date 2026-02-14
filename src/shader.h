@@ -31,6 +31,7 @@ public:
     void drawFrame();
 
     UniformQueue &getUniforms() { return uniformsList; }
+    void refreshTextures();
 
     std::string compileError;
     std::string vertexSource;

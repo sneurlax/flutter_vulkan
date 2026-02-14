@@ -99,7 +99,7 @@ void Renderer::loop() {
 
             case MSG_NEW_TEXTURE:
                 if (shader != nullptr) {
-                    shader->getUniforms().setAllSampler2D();
+                    shader->refreshTextures();
                 }
                 break;
 

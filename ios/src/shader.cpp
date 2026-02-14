@@ -1,5 +1,5 @@
 #include "common.h"
-#if !FLUTTER_VULKAN_SIMULATOR_STUB
+#if \!FLUTTER_VULKAN_SIMULATOR_STUB
 
 #include "shader.h"
 
@@ -9,8 +9,8 @@
 
 #define LOG_TAG_SHADER "NATIVE SHADER"
 
-#if defined(_IS_MACOS_) || defined(_IS_IOS_)
-// macOS/iOS CVPixelBuffer uses BGRA format
+#ifdef _IS_MACOS_
+// macOS CVPixelBuffer uses BGRA format
 #define FLUTTER_VK_COLOR_FORMAT VK_FORMAT_B8G8R8A8_UNORM
 #else
 #define FLUTTER_VK_COLOR_FORMAT VK_FORMAT_R8G8B8A8_UNORM
@@ -539,6 +539,11 @@ std::string Shader::initShader() {
     return compileError;
 }
 
+void Shader::refreshTextures() {
+    uniformsList.setAllSampler2D();
+    updateDescriptorSets();
+}
+
 std::string Shader::initShaderToy() {
     // Full-screen triangle vertex shader (no vertex buffer needed)
     vertexSource =
@@ -652,11 +657,23 @@ void Shader::drawFrame() {
     vkQueueWaitIdle(vkCtx->graphicsQueue);
 
     // Copy pixels to Flutter texture buffer
-#ifdef _IS_LINUX_
+#ifdef _IS_ANDROID_
+    ANativeWindow_Buffer nBuf;
+    if (ANativeWindow_lock(self->window, &nBuf, nullptr) == 0) {
+        auto *src = static_cast<uint8_t *>(stagingMapped);
+        auto *dst = static_cast<uint8_t *>(nBuf.bits);
+        int srcStride = width * 4;
+        int dstStride = nBuf.stride * 4;
+        for (int y = 0; y < height; y++) {
+            memcpy(dst + y * dstStride, src + y * srcStride, srcStride);
+        }
+        ANativeWindow_unlockAndPost(self->window);
+    }
+#elif defined(_IS_LINUX_)
     memcpy(self->myTexture->buffer, stagingMapped, width * height * 4);
     fl_texture_registrar_mark_texture_frame_available(
         self->texture_registrar, self->texture);
-#elif defined(_IS_MACOS_) || defined(_IS_IOS_)
+#elif defined(_IS_MACOS_)
     memcpy(self->buffer, stagingMapped, width * height * 4);
     if (self->markFrameAvailable) {
         self->markFrameAvailable(self->registryRef);
@@ -664,4 +681,4 @@ void Shader::drawFrame() {
 #endif
 }
 
-#endif // !FLUTTER_VULKAN_SIMULATOR_STUB
+#endif // \!FLUTTER_VULKAN_SIMULATOR_STUB
