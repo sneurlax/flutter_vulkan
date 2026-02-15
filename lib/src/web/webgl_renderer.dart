@@ -219,6 +219,10 @@ class WebGLRenderer implements VulkanRenderer {
         'uniform vec3 iResolution;\n'
         'uniform vec4 iMouse;\n'
         'uniform int iFrame;\n'
+        'uniform sampler2D iChannel0;\n'
+        'uniform sampler2D iChannel1;\n'
+        'uniform sampler2D iChannel2;\n'
+        'uniform sampler2D iChannel3;\n'
         'out vec4 fragColor;\n\n'
         '$fragmentShader\n\n'
         'void main() {\n'
@@ -237,6 +241,7 @@ class WebGLRenderer implements VulkanRenderer {
     _iFrameLoc = _gl!.getUniformLocation(_program!, 'iFrame');
 
     _relookupUniforms();
+    addShaderToyUniforms();
     return '';
   }
 
@@ -390,7 +395,14 @@ class WebGLRenderer implements VulkanRenderer {
   String getFragmentShader() => _currentFragmentSrc ?? '';
 
   @override
-  void addShaderToyUniforms() {}
+  void addShaderToyUniforms() {
+    for (int i = 0; i < 4; i++) {
+      final name = 'iChannel$i';
+      if (!_samplers.containsKey(name)) {
+        addSampler2DUniform(name, 1, 1, Uint8List.fromList([0, 0, 0, 255]));
+      }
+    }
+  }
 
   @override
   void setMousePosition(Offset startingPos, Offset pos, PointerEventType eventType, Size twSize) {
@@ -458,7 +470,8 @@ class WebGLRenderer implements VulkanRenderer {
       width.toJS, height.toJS, 0.toJS,
       _GL.RGBA, _GL.UNSIGNED_BYTE, val.toJS,
     );
-    gl.texParameteri(_GL.TEXTURE_2D, _GL.TEXTURE_MIN_FILTER, _GL.LINEAR);
+    gl.generateMipmap(_GL.TEXTURE_2D);
+    gl.texParameteri(_GL.TEXTURE_2D, _GL.TEXTURE_MIN_FILTER, _GL.LINEAR_MIPMAP_LINEAR);
     gl.texParameteri(_GL.TEXTURE_2D, _GL.TEXTURE_MAG_FILTER, _GL.LINEAR);
     gl.texParameteri(_GL.TEXTURE_2D, _GL.TEXTURE_WRAP_S, _GL.CLAMP_TO_EDGE);
     gl.texParameteri(_GL.TEXTURE_2D, _GL.TEXTURE_WRAP_T, _GL.CLAMP_TO_EDGE);
@@ -526,6 +539,7 @@ class WebGLRenderer implements VulkanRenderer {
       width.toJS, height.toJS, 0.toJS,
       _GL.RGBA, _GL.UNSIGNED_BYTE, val.toJS,
     );
+    gl.generateMipmap(_GL.TEXTURE_2D);
     info.width = width;
     info.height = height;
     return true;
