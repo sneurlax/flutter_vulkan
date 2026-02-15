@@ -5,6 +5,7 @@
 #include "shader.h"
 #include "vulkan_context.h"
 
+#include <atomic>
 #include <thread>
 #include <mutex>
 #include <memory>
@@ -52,6 +53,7 @@ private:
         MSG_NEW_TEXTURE,
     };
     std::vector<RenderThreadMessage> msg;
+    std::atomic<bool> msgProcessed{true};
 };
 
 #endif // RENDERER_H
