@@ -42,9 +42,11 @@ std::string Renderer::setShader(bool isContinuous,
     newShaderFragmentSource = fragmentSource;
     newShaderVertexSource = vertexSource;
     newShaderIsContinuous = isContinuous;
+    msgProcessed = false;
     msg.push_back(MSG_NEW_SHADER);
     if (loopRunning)
-        while (msg.back() == MSG_NEW_SHADER);
+        while (!msgProcessed)
+            std::this_thread::yield();
     return compileError;
 }
 
@@ -55,9 +57,11 @@ std::string Renderer::setShaderToy(const char *fragmentSource) {
     newShaderFragmentSource = fragmentSource;
     newShaderVertexSource = "";
     newShaderIsContinuous = true;
+    msgProcessed = false;
     msg.push_back(MSG_NEW_SHADER);
     if (loopRunning)
-        while (msg.size() > 0);
+        while (!msgProcessed)
+            std::this_thread::yield();
     return compileError;
 }
 
@@ -98,6 +102,7 @@ void Renderer::loop() {
                     compileError = shader->initShaderToy();
                 else
                     compileError = shader->initShader();
+                msgProcessed = true;
                 break;
 
             case MSG_NEW_TEXTURE:
