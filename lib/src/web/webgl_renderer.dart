@@ -227,6 +227,7 @@ class WebGLRenderer implements VulkanRenderer {
         '$fragmentShader\n\n'
         'void main() {\n'
         '    mainImage(fragColor, gl_FragCoord.xy);\n'
+        '    fragColor.a = 1.0;\n'
         '}\n';
 
     _currentVertexSrc = vertexSrc;
