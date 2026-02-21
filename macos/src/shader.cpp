@@ -10,7 +10,7 @@
 // macOS CVPixelBuffer uses BGRA format
 #define FLUTTER_VK_COLOR_FORMAT VK_FORMAT_B8G8R8A8_UNORM
 #else
-#define FLUTTER_VK_COLOR_FORMAT FLUTTER_VK_COLOR_FORMAT
+#define FLUTTER_VK_COLOR_FORMAT VK_FORMAT_R8G8B8A8_UNORM
 #endif
 
 Shader::Shader(VulkanPluginContext *pluginCtx, VulkanContext *vkCtx)
@@ -41,8 +41,9 @@ void Shader::addShaderToyUniforms() {
     uniformsList.addUniform("iResolution", UNIFORM_VEC3, (void *)(&iResolution));
     uniformsList.addUniform("iTime", UNIFORM_FLOAT, (void *)(&time));
 
-    // Add black 4x4 textures for iChannel[0-3]
+    // Add opaque black 4x4 textures for iChannel[0-3]
     std::vector<unsigned char> rawData(4 * 4 * 4, 0);
+    for (int i = 3; i < 4 * 4 * 4; i += 4) rawData[i] = 255;
     Sampler2D sampler;
     sampler.add_RGBA32(4, 4, rawData.data());
     uniformsList.addUniform("iChannel0", UNIFORM_SAMPLER2D, (void *)(&sampler));
@@ -536,6 +537,11 @@ std::string Shader::initShader() {
     return compileError;
 }
 
+void Shader::refreshTextures() {
+    uniformsList.setAllSampler2D();
+    updateDescriptorSets();
+}
+
 std::string Shader::initShaderToy() {
     // Full-screen triangle vertex shader (no vertex buffer needed)
     vertexSource =
@@ -565,6 +571,7 @@ std::string Shader::initShaderToy() {
     std::string footer =
         "\nvoid main() {\n"
         "    mainImage(fragColor, vec2(gl_FragCoord.x, iResolution.y - gl_FragCoord.y));\n"
+        "    fragColor.a = 1.0;\n"
         "}\n";
 
     fragmentSource = header + fragmentSource + footer;
@@ -649,7 +656,19 @@ void Shader::drawFrame() {
     vkQueueWaitIdle(vkCtx->graphicsQueue);
 
     // Copy pixels to Flutter texture buffer
-#ifdef _IS_LINUX_
+#ifdef _IS_ANDROID_
+    ANativeWindow_Buffer nBuf;
+    if (ANativeWindow_lock(self->window, &nBuf, nullptr) == 0) {
+        auto *src = static_cast<uint8_t *>(stagingMapped);
+        auto *dst = static_cast<uint8_t *>(nBuf.bits);
+        int srcStride = width * 4;
+        int dstStride = nBuf.stride * 4;
+        for (int y = 0; y < height; y++) {
+            memcpy(dst + y * dstStride, src + y * srcStride, srcStride);
+        }
+        ANativeWindow_unlockAndPost(self->window);
+    }
+#elif defined(_IS_LINUX_)
     memcpy(self->myTexture->buffer, stagingMapped, width * height * 4);
     fl_texture_registrar_mark_texture_frame_available(
         self->texture_registrar, self->texture);
