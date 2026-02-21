@@ -25,6 +25,15 @@ class _ControlsState extends ConsumerState<Controls> {
   Timer? fpsTimer;
 
   @override
+  void initState() {
+    super.initState();
+    fpsTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      double fps = VulkanController().renderer.getFps();
+      if (fps >= 0) ref.read(stateFPS.notifier).state = fps;
+    });
+  }
+
+  @override
   void dispose() {
     fpsTimer?.cancel();
     super.dispose();
@@ -51,7 +60,6 @@ class _ControlsState extends ConsumerState<Controls> {
                       : const WidgetStatePropertyAll(Colors.red),
                 ),
                 onPressed: () async {
-                  fpsTimer?.cancel();
                   Size textureSize = ref.read(stateTextureSize);
                   int id = await VulkanController().vulkanPlugin.createSurface(
                         textureSize.width.toInt(),
@@ -69,12 +77,6 @@ class _ControlsState extends ConsumerState<Controls> {
                       shaderToy[idx]['fragment']!);
                   ref.read(stateUrl.notifier).state = shaderToy[idx]['url']!;
                   ref.read(stateShaderIndex.notifier).state = idx;
-
-                  fpsTimer = Timer.periodic(
-                      const Duration(seconds: 1), (timer) {
-                    ref.read(stateFPS.notifier).state =
-                        VulkanController().renderer.getFps();
-                  });
                 },
                 child: const Text('create texture'),
               ),
@@ -83,21 +85,13 @@ class _ControlsState extends ConsumerState<Controls> {
               ElevatedButton(
                 onPressed: () {
                   VulkanController().renderer.startThread();
-                  fpsTimer?.cancel();
-                  fpsTimer =
-                      Timer.periodic(const Duration(seconds: 1), (timer) {
-                    double fps = VulkanController().renderer.getFps();
-                    ref.read(stateFPS.notifier).state = fps;
-                  });
                 },
                 child: const Text('start'),
               ),
               /// STOP
               ElevatedButton(
                 onPressed: () {
-                  fpsTimer?.cancel();
                   VulkanController().renderer.stopThread();
-                  ref.read(stateFPS.notifier).state = 0;
                 },
                 child: const Text('stop'),
               ),
