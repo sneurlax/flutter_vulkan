@@ -81,8 +81,7 @@ class _ControlsState extends ConsumerState<Controls> {
                 onPressed: () {
                   fpsTimer?.cancel();
                   VulkanController().renderer.stopThread();
-                  ref.read(stateTextureCreated.notifier).state = false;
-                  ref.read(stateShaderIndex.notifier).state = -1;
+                  ref.read(stateFPS.notifier).state = 0;
                 },
                 child: const Text('stop'),
               ),
