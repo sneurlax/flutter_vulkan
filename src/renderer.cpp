@@ -17,6 +17,11 @@ Renderer::Renderer(VulkanPluginContext *textureStruct)
     if (!vulkanCtx.init()) {
         LOGD(LOG_TAG_RENDERER, "Failed to initialize Vulkan context!");
     }
+#ifdef _IS_ANDROID_
+    else if (!vulkanCtx.initSwapchain(self->window, self->width, self->height)) {
+        LOGD(LOG_TAG_RENDERER, "Failed to initialize Vulkan swapchain!");
+    }
+#endif
 }
 
 Renderer::~Renderer() {
