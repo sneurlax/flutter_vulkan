@@ -570,7 +570,11 @@ std::string Shader::initShaderToy() {
         "layout(set=0, binding=1) uniform sampler2D iChannel1;\n"
         "layout(set=0, binding=2) uniform sampler2D iChannel2;\n"
         "layout(set=0, binding=3) uniform sampler2D iChannel3;\n"
-        "layout(location=0) out vec4 fragColor;\n";
+        "layout(location=0) out vec4 fragColor;\n"
+#ifdef _IS_ANDROID_
+        "#define texture(s, uv) textureLod(s, uv, 0.0)\n"
+#endif
+        ;
 
     std::string footer =
         "\nvoid main() {\n"
