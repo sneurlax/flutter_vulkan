@@ -41,8 +41,9 @@ void Shader::addShaderToyUniforms() {
     uniformsList.addUniform("iResolution", UNIFORM_VEC3, (void *)(&iResolution));
     uniformsList.addUniform("iTime", UNIFORM_FLOAT, (void *)(&time));
 
-    // Add black 4x4 textures for iChannel[0-3]
+    // Add opaque black 4x4 textures for iChannel[0-3]
     std::vector<unsigned char> rawData(4 * 4 * 4, 0);
+    for (int i = 3; i < 4 * 4 * 4; i += 4) rawData[i] = 255;
     Sampler2D sampler;
     sampler.add_RGBA32(4, 4, rawData.data());
     uniformsList.addUniform("iChannel0", UNIFORM_SAMPLER2D, (void *)(&sampler));
@@ -570,6 +571,7 @@ std::string Shader::initShaderToy() {
     std::string footer =
         "\nvoid main() {\n"
         "    mainImage(fragColor, vec2(gl_FragCoord.x, iResolution.y - gl_FragCoord.y));\n"
+        "    fragColor.a = 1.0;\n"
         "}\n";
 
     fragmentSource = header + fragmentSource + footer;
