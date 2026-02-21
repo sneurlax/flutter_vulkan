@@ -95,14 +95,22 @@ uint32_t Shader::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags prope
 
 bool Shader::createRenderPass() {
     VkAttachmentDescription colorAttachment{};
+#ifdef _IS_ANDROID_
+    colorAttachment.format = vkCtx->swapchainFormat;
+#else
     colorAttachment.format = FLUTTER_VK_COLOR_FORMAT;
+#endif
     colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
     colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+#ifdef _IS_ANDROID_
+    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+#else
     colorAttachment.finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+#endif
 
     VkAttachmentReference colorAttachmentRef{};
     colorAttachmentRef.attachment = 0;
@@ -273,6 +281,24 @@ bool Shader::createPipeline(const std::vector<uint32_t> &vertSpirv,
 }
 
 bool Shader::createOffscreenResources() {
+#ifdef _IS_ANDROID_
+    // Create framebuffers from swapchain image views
+    swapchainFramebuffers.resize(vkCtx->swapchainImageViews.size());
+    for (size_t i = 0; i < vkCtx->swapchainImageViews.size(); i++) {
+        VkFramebufferCreateInfo fbInfo{};
+        fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        fbInfo.renderPass = renderPass;
+        fbInfo.attachmentCount = 1;
+        fbInfo.pAttachments = &vkCtx->swapchainImageViews[i];
+        fbInfo.width = vkCtx->swapchainExtent.width;
+        fbInfo.height = vkCtx->swapchainExtent.height;
+        fbInfo.layers = 1;
+
+        if (vkCreateFramebuffer(vkCtx->device, &fbInfo, nullptr, &swapchainFramebuffers[i]) != VK_SUCCESS)
+            return false;
+    }
+    return true;
+#else
     // Create color image
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -328,9 +354,13 @@ bool Shader::createOffscreenResources() {
     fbInfo.layers = 1;
 
     return vkCreateFramebuffer(vkCtx->device, &fbInfo, nullptr, &framebuffer) == VK_SUCCESS;
+#endif
 }
 
 bool Shader::createStagingBuffer() {
+#ifdef _IS_ANDROID_
+    return true;
+#else
     VkDeviceSize bufferSize = width * height * 4;
 
     VkBufferCreateInfo bufferInfo{};
@@ -358,6 +388,7 @@ bool Shader::createStagingBuffer() {
     vkMapMemory(vkCtx->device, stagingBufferMemory, 0, bufferSize, 0, &stagingMapped);
 
     return true;
+#endif
 }
 
 bool Shader::allocateCommandBuffer() {
@@ -443,6 +474,11 @@ void Shader::cleanupPipeline() {
         vkFreeMemory(vkCtx->device, stagingBufferMemory, nullptr);
         stagingBufferMemory = VK_NULL_HANDLE;
     }
+#ifdef _IS_ANDROID_
+    for (auto fb : swapchainFramebuffers)
+        vkDestroyFramebuffer(vkCtx->device, fb, nullptr);
+    swapchainFramebuffers.clear();
+#endif
     if (framebuffer != VK_NULL_HANDLE) {
         vkDestroyFramebuffer(vkCtx->device, framebuffer, nullptr);
         framebuffer = VK_NULL_HANDLE;
@@ -588,6 +624,72 @@ void Shader::drawFrame() {
     // Get push constants
     PushConstants pc = uniformsList.getPushConstants();
 
+#ifdef _IS_ANDROID_
+    // Acquire next swapchain image
+    uint32_t imageIndex;
+    VkResult result = vkAcquireNextImageKHR(vkCtx->device, vkCtx->swapchain, UINT64_MAX,
+        vkCtx->imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) return;
+    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) return;
+
+    vkResetCommandBuffer(commandBuffer, 0);
+
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+    VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
+    VkRenderPassBeginInfo renderPassInfo{};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    renderPassInfo.renderPass = renderPass;
+    renderPassInfo.framebuffer = swapchainFramebuffers[imageIndex];
+    renderPassInfo.renderArea.offset = {0, 0};
+    renderPassInfo.renderArea.extent = vkCtx->swapchainExtent;
+    renderPassInfo.clearValueCount = 1;
+    renderPassInfo.pClearValues = &clearColor;
+
+    vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+    vkCmdPushConstants(commandBuffer, pipelineLayout,
+                       VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                       sizeof(PushConstants), &pc);
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
+    vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+    vkCmdEndRenderPass(commandBuffer);
+
+    vkEndCommandBuffer(commandBuffer);
+
+    // Submit with semaphore synchronization
+    VkSemaphore waitSemaphores[] = {vkCtx->imageAvailableSemaphore};
+    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+    VkSemaphore signalSemaphores[] = {vkCtx->renderFinishedSemaphore};
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.waitSemaphoreCount = 1;
+    submitInfo.pWaitSemaphores = waitSemaphores;
+    submitInfo.pWaitDstStageMask = waitStages;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+    submitInfo.signalSemaphoreCount = 1;
+    submitInfo.pSignalSemaphores = signalSemaphores;
+
+    vkQueueSubmit(vkCtx->graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+
+    // Present
+    VkPresentInfoKHR presentInfo{};
+    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    presentInfo.waitSemaphoreCount = 1;
+    presentInfo.pWaitSemaphores = signalSemaphores;
+    presentInfo.swapchainCount = 1;
+    presentInfo.pSwapchains = &vkCtx->swapchain;
+    presentInfo.pImageIndices = &imageIndex;
+
+    vkQueuePresentKHR(vkCtx->graphicsQueue, &presentInfo);
+    vkQueueWaitIdle(vkCtx->graphicsQueue);
+#else
     // Reset and begin command buffer
     vkResetCommandBuffer(commandBuffer, 0);
 
@@ -654,19 +756,7 @@ void Shader::drawFrame() {
     vkQueueWaitIdle(vkCtx->graphicsQueue);
 
     // Copy pixels to Flutter texture buffer
-#ifdef _IS_ANDROID_
-    ANativeWindow_Buffer nBuf;
-    if (ANativeWindow_lock(self->window, &nBuf, nullptr) == 0) {
-        auto *src = static_cast<uint8_t *>(stagingMapped);
-        auto *dst = static_cast<uint8_t *>(nBuf.bits);
-        int srcStride = width * 4;
-        int dstStride = nBuf.stride * 4;
-        for (int y = 0; y < height; y++) {
-            memcpy(dst + y * dstStride, src + y * srcStride, srcStride);
-        }
-        ANativeWindow_unlockAndPost(self->window);
-    }
-#elif defined(_IS_LINUX_)
+#ifdef _IS_LINUX_
     memcpy(self->myTexture->buffer, stagingMapped, width * height * 4);
     fl_texture_registrar_mark_texture_frame_available(
         self->texture_registrar, self->texture);
@@ -675,5 +765,6 @@ void Shader::drawFrame() {
     if (self->markFrameAvailable) {
         self->markFrameAvailable(self->registryRef);
     }
+#endif
 #endif
 }
