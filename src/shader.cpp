@@ -41,8 +41,9 @@ void Shader::addShaderToyUniforms() {
     uniformsList.addUniform("iResolution", UNIFORM_VEC3, (void *)(&iResolution));
     uniformsList.addUniform("iTime", UNIFORM_FLOAT, (void *)(&time));
 
-    // Add black 4x4 textures for iChannel[0-3]
+    // Add opaque black 4x4 textures for iChannel[0-3]
     std::vector<unsigned char> rawData(4 * 4 * 4, 0);
+    for (int i = 3; i < 4 * 4 * 4; i += 4) rawData[i] = 255;
     Sampler2D sampler;
     sampler.add_RGBA32(4, 4, rawData.data());
     uniformsList.addUniform("iChannel0", UNIFORM_SAMPLER2D, (void *)(&sampler));
@@ -331,6 +332,9 @@ bool Shader::createOffscreenResources() {
 }
 
 bool Shader::createStagingBuffer() {
+#ifdef _IS_ANDROID_
+    return true;
+#else
     VkDeviceSize bufferSize = width * height * 4;
 
     VkBufferCreateInfo bufferInfo{};
@@ -358,6 +362,7 @@ bool Shader::createStagingBuffer() {
     vkMapMemory(vkCtx->device, stagingBufferMemory, 0, bufferSize, 0, &stagingMapped);
 
     return true;
+#endif
 }
 
 bool Shader::allocateCommandBuffer() {
@@ -536,6 +541,11 @@ std::string Shader::initShader() {
     return compileError;
 }
 
+void Shader::refreshTextures() {
+    uniformsList.setAllSampler2D();
+    updateDescriptorSets();
+}
+
 std::string Shader::initShaderToy() {
     // Full-screen triangle vertex shader (no vertex buffer needed)
     vertexSource =
@@ -560,11 +570,16 @@ std::string Shader::initShaderToy() {
         "layout(set=0, binding=1) uniform sampler2D iChannel1;\n"
         "layout(set=0, binding=2) uniform sampler2D iChannel2;\n"
         "layout(set=0, binding=3) uniform sampler2D iChannel3;\n"
-        "layout(location=0) out vec4 fragColor;\n";
+        "layout(location=0) out vec4 fragColor;\n"
+#ifdef _IS_ANDROID_
+        "#define texture(s, uv) textureLod(s, uv, 0.0)\n"
+#endif
+        ;
 
     std::string footer =
         "\nvoid main() {\n"
         "    mainImage(fragColor, vec2(gl_FragCoord.x, iResolution.y - gl_FragCoord.y));\n"
+        "    fragColor.a = 1.0;\n"
         "}\n";
 
     fragmentSource = header + fragmentSource + footer;
@@ -583,7 +598,16 @@ void Shader::drawFrame() {
     // Get push constants
     PushConstants pc = uniformsList.getPushConstants();
 
-    // Reset and begin command buffer
+#ifdef _IS_ANDROID_
+    // Acquire next swapchain image
+    uint32_t imageIndex;
+    VkResult result = vkAcquireNextImageKHR(vkCtx->device, vkCtx->swapchain, UINT64_MAX,
+        vkCtx->imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) return;
+    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) return;
+#endif
+
+    // Render to offscreen image (same pipeline on all platforms)
     vkResetCommandBuffer(commandBuffer, 0);
 
     VkCommandBufferBeginInfo beginInfo{};
@@ -591,7 +615,6 @@ void Shader::drawFrame() {
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(commandBuffer, &beginInfo);
 
-    // Begin render pass
     VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
     VkRenderPassBeginInfo renderPassInfo{};
     renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -606,21 +629,98 @@ void Shader::drawFrame() {
 
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
 
-    // Push constants
     vkCmdPushConstants(commandBuffer, pipelineLayout,
                        VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                        sizeof(PushConstants), &pc);
 
-    // Bind descriptor sets (iChannel textures)
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
 
-    // Draw full-screen triangle (3 vertices, no vertex buffer)
     vkCmdDraw(commandBuffer, 3, 1, 0, 0);
 
     vkCmdEndRenderPass(commandBuffer);
 
-    // The render pass transitions the image to TRANSFER_SRC_OPTIMAL via finalLayout.
+#ifdef _IS_ANDROID_
+    // Blit offscreen image to swapchain image
+    VkImage swapImage = vkCtx->swapchainImages[imageIndex];
+
+    VkImageMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = swapImage;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = 1;
+    barrier.srcAccessMask = 0;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+    vkCmdPipelineBarrier(commandBuffer,
+        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+    VkImageBlit blitRegion{};
+    blitRegion.srcOffsets[0] = {0, 0, 0};
+    blitRegion.srcOffsets[1] = {width, height, 1};
+    blitRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    blitRegion.srcSubresource.mipLevel = 0;
+    blitRegion.srcSubresource.baseArrayLayer = 0;
+    blitRegion.srcSubresource.layerCount = 1;
+    blitRegion.dstOffsets[0] = {0, 0, 0};
+    blitRegion.dstOffsets[1] = {(int32_t)vkCtx->swapchainExtent.width,
+                                (int32_t)vkCtx->swapchainExtent.height, 1};
+    blitRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    blitRegion.dstSubresource.mipLevel = 0;
+    blitRegion.dstSubresource.baseArrayLayer = 0;
+    blitRegion.dstSubresource.layerCount = 1;
+
+    vkCmdBlitImage(commandBuffer,
+        colorImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        swapImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        1, &blitRegion, VK_FILTER_NEAREST);
+
+    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = 0;
+
+    vkCmdPipelineBarrier(commandBuffer,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+        0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+    vkEndCommandBuffer(commandBuffer);
+
+    VkSemaphore waitSemaphores[] = {vkCtx->imageAvailableSemaphore};
+    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_TRANSFER_BIT};
+    VkSemaphore signalSemaphores[] = {vkCtx->renderFinishedSemaphore};
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.waitSemaphoreCount = 1;
+    submitInfo.pWaitSemaphores = waitSemaphores;
+    submitInfo.pWaitDstStageMask = waitStages;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+    submitInfo.signalSemaphoreCount = 1;
+    submitInfo.pSignalSemaphores = signalSemaphores;
+
+    vkQueueSubmit(vkCtx->graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+
+    VkPresentInfoKHR presentInfo{};
+    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    presentInfo.waitSemaphoreCount = 1;
+    presentInfo.pWaitSemaphores = signalSemaphores;
+    presentInfo.swapchainCount = 1;
+    presentInfo.pSwapchains = &vkCtx->swapchain;
+    presentInfo.pImageIndices = &imageIndex;
+
+    vkQueuePresentKHR(vkCtx->graphicsQueue, &presentInfo);
+    vkQueueWaitIdle(vkCtx->graphicsQueue);
+#else
     // Copy color image to staging buffer
     VkBufferImageCopy region{};
     region.bufferOffset = 0;
@@ -649,19 +749,7 @@ void Shader::drawFrame() {
     vkQueueWaitIdle(vkCtx->graphicsQueue);
 
     // Copy pixels to Flutter texture buffer
-#ifdef _IS_ANDROID_
-    ANativeWindow_Buffer nBuf;
-    if (ANativeWindow_lock(self->window, &nBuf, nullptr) == 0) {
-        auto *src = static_cast<uint8_t *>(stagingMapped);
-        auto *dst = static_cast<uint8_t *>(nBuf.bits);
-        int srcStride = width * 4;
-        int dstStride = nBuf.stride * 4;
-        for (int y = 0; y < height; y++) {
-            memcpy(dst + y * dstStride, src + y * srcStride, srcStride);
-        }
-        ANativeWindow_unlockAndPost(self->window);
-    }
-#elif defined(_IS_LINUX_)
+#ifdef _IS_LINUX_
     memcpy(self->myTexture->buffer, stagingMapped, width * height * 4);
     fl_texture_registrar_mark_texture_frame_available(
         self->texture_registrar, self->texture);
@@ -670,5 +758,6 @@ void Shader::drawFrame() {
     if (self->markFrameAvailable) {
         self->markFrameAvailable(self->registryRef);
     }
+#endif
 #endif
 }

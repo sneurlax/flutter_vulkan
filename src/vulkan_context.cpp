@@ -1,4 +1,5 @@
 #include "vulkan_context.h"
+#include <algorithm>
 #include <cstring>
 #include <iostream>
 #include <vector>
@@ -18,6 +19,9 @@ bool VulkanContext::init() {
 void VulkanContext::cleanup() {
     if (device != VK_NULL_HANDLE) {
         vkDeviceWaitIdle(device);
+#ifdef __ANDROID__
+        cleanupSwapchain();
+#endif
         if (commandPool != VK_NULL_HANDLE) {
             vkDestroyCommandPool(device, commandPool, nullptr);
             commandPool = VK_NULL_HANDLE;
@@ -70,6 +74,15 @@ bool VulkanContext::createInstance() {
 #ifdef __APPLE__
     // MoltenVK direct linking: no loader extensions needed
     createInfo.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+#endif
+
+#ifdef __ANDROID__
+    const char* instanceExtensions[] = {
+        VK_KHR_SURFACE_EXTENSION_NAME,
+        VK_KHR_ANDROID_SURFACE_EXTENSION_NAME
+    };
+    createInfo.enabledExtensionCount = 2;
+    createInfo.ppEnabledExtensionNames = instanceExtensions;
 #endif
 
     VkResult result = vkCreateInstance(&createInfo, nullptr, &instance);
@@ -134,6 +147,10 @@ bool VulkanContext::createLogicalDevice() {
     const char* deviceExtensions[] = { "VK_KHR_portability_subset" };
     createInfo.enabledExtensionCount = 1;
     createInfo.ppEnabledExtensionNames = deviceExtensions;
+#elif defined(__ANDROID__)
+    const char* deviceExtensions[] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+    createInfo.enabledExtensionCount = 1;
+    createInfo.ppEnabledExtensionNames = deviceExtensions;
 #endif
 
     VkResult result = vkCreateDevice(physicalDevice, &createInfo, nullptr, &device);
@@ -159,3 +176,137 @@ bool VulkanContext::createCommandPool() {
     }
     return true;
 }
+
+#ifdef __ANDROID__
+bool VulkanContext::initSwapchain(ANativeWindow *window, uint32_t width, uint32_t height) {
+    VkAndroidSurfaceCreateInfoKHR surfaceInfo{};
+    surfaceInfo.sType = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR;
+    surfaceInfo.window = window;
+
+    if (vkCreateAndroidSurfaceKHR(instance, &surfaceInfo, nullptr, &surface) != VK_SUCCESS) {
+        LOGD(LOG_TAG_VK, "Failed to create Android surface");
+        return false;
+    }
+
+    VkBool32 presentSupport = false;
+    vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, graphicsQueueFamily, surface, &presentSupport);
+    if (!presentSupport) {
+        LOGD(LOG_TAG_VK, "Graphics queue does not support presentation");
+        return false;
+    }
+
+    VkSurfaceCapabilitiesKHR capabilities;
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &capabilities);
+
+    uint32_t formatCount;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, nullptr);
+    std::vector<VkSurfaceFormatKHR> formats(formatCount);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, formats.data());
+
+    swapchainFormat = formats[0].format;
+    VkColorSpaceKHR colorSpace = formats[0].colorSpace;
+    for (const auto &f : formats) {
+        if (f.format == VK_FORMAT_R8G8B8A8_UNORM) {
+            swapchainFormat = f.format;
+            colorSpace = f.colorSpace;
+            break;
+        }
+    }
+
+    if (capabilities.currentExtent.width != UINT32_MAX) {
+        swapchainExtent = capabilities.currentExtent;
+    } else {
+        swapchainExtent = {width, height};
+        swapchainExtent.width = std::max(capabilities.minImageExtent.width,
+            std::min(capabilities.maxImageExtent.width, swapchainExtent.width));
+        swapchainExtent.height = std::max(capabilities.minImageExtent.height,
+            std::min(capabilities.maxImageExtent.height, swapchainExtent.height));
+    }
+
+    uint32_t imageCount = capabilities.minImageCount + 1;
+    if (capabilities.maxImageCount > 0 && imageCount > capabilities.maxImageCount)
+        imageCount = capabilities.maxImageCount;
+
+    VkSwapchainCreateInfoKHR swapchainInfo{};
+    swapchainInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+    swapchainInfo.surface = surface;
+    swapchainInfo.minImageCount = imageCount;
+    swapchainInfo.imageFormat = swapchainFormat;
+    swapchainInfo.imageColorSpace = colorSpace;
+    swapchainInfo.imageExtent = swapchainExtent;
+    swapchainInfo.imageArrayLayers = 1;
+    swapchainInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    swapchainInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    swapchainInfo.preTransform = capabilities.currentTransform;
+    swapchainInfo.compositeAlpha = (capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR)
+        ? VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR : VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
+    swapchainInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    swapchainInfo.clipped = VK_TRUE;
+
+    if (vkCreateSwapchainKHR(device, &swapchainInfo, nullptr, &swapchain) != VK_SUCCESS) {
+        LOGD(LOG_TAG_VK, "Failed to create swapchain");
+        return false;
+    }
+
+    vkGetSwapchainImagesKHR(device, swapchain, &imageCount, nullptr);
+    swapchainImages.resize(imageCount);
+    vkGetSwapchainImagesKHR(device, swapchain, &imageCount, swapchainImages.data());
+
+    swapchainImageViews.resize(imageCount);
+    for (uint32_t i = 0; i < imageCount; i++) {
+        VkImageViewCreateInfo viewInfo{};
+        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        viewInfo.image = swapchainImages[i];
+        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.format = swapchainFormat;
+        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        viewInfo.subresourceRange.baseMipLevel = 0;
+        viewInfo.subresourceRange.levelCount = 1;
+        viewInfo.subresourceRange.baseArrayLayer = 0;
+        viewInfo.subresourceRange.layerCount = 1;
+
+        if (vkCreateImageView(device, &viewInfo, nullptr, &swapchainImageViews[i]) != VK_SUCCESS) {
+            LOGD(LOG_TAG_VK, "Failed to create swapchain image view %d", i);
+            return false;
+        }
+    }
+
+    VkSemaphoreCreateInfo semaphoreInfo{};
+    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphore) != VK_SUCCESS ||
+        vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphore) != VK_SUCCESS) {
+        LOGD(LOG_TAG_VK, "Failed to create semaphores");
+        return false;
+    }
+
+    LOGD(LOG_TAG_VK, "Swapchain created: %dx%d, %d images, format %d",
+         swapchainExtent.width, swapchainExtent.height, imageCount, swapchainFormat);
+    return true;
+}
+
+void VulkanContext::cleanupSwapchain() {
+    if (device == VK_NULL_HANDLE) return;
+
+    if (imageAvailableSemaphore != VK_NULL_HANDLE) {
+        vkDestroySemaphore(device, imageAvailableSemaphore, nullptr);
+        imageAvailableSemaphore = VK_NULL_HANDLE;
+    }
+    if (renderFinishedSemaphore != VK_NULL_HANDLE) {
+        vkDestroySemaphore(device, renderFinishedSemaphore, nullptr);
+        renderFinishedSemaphore = VK_NULL_HANDLE;
+    }
+    for (auto view : swapchainImageViews)
+        vkDestroyImageView(device, view, nullptr);
+    swapchainImageViews.clear();
+    swapchainImages.clear();
+    if (swapchain != VK_NULL_HANDLE) {
+        vkDestroySwapchainKHR(device, swapchain, nullptr);
+        swapchain = VK_NULL_HANDLE;
+    }
+    if (surface != VK_NULL_HANDLE) {
+        vkDestroySurfaceKHR(instance, surface, nullptr);
+        surface = VK_NULL_HANDLE;
+    }
+}
+#endif

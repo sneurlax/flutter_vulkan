@@ -1,7 +1,9 @@
 #include "common.h"
-#if !FLUTTER_VULKAN_SIMULATOR_STUB
+#if \!FLUTTER_VULKAN_SIMULATOR_STUB
 
 #include "sampler2d.h"
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <stdexcept>
 
@@ -82,17 +84,20 @@ void Sampler2D::createVulkanTexture(VkDevice device, VkPhysicalDevice physDevice
     memcpy(mapped, data.data(), imageSize);
     vkUnmapMemory(device, stagingMemory);
 
+    // Calculate mip levels
+    uint32_t mipLevels = (uint32_t)std::floor(std::log2(std::max(width, height))) + 1;
+
     // Create image
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
     imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
     imageInfo.extent = {(uint32_t)width, (uint32_t)height, 1};
-    imageInfo.mipLevels = 1;
+    imageInfo.mipLevels = mipLevels;
     imageInfo.arrayLayers = 1;
     imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
     imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     vkCreateImage(device, &imageInfo, nullptr, &image);
 
@@ -118,7 +123,7 @@ void Sampler2D::createVulkanTexture(VkDevice device, VkPhysicalDevice physDevice
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(cmdBuf, &beginInfo);
 
-    // Transition image to TRANSFER_DST
+    // Transition all mip levels to TRANSFER_DST
     VkImageMemoryBarrier barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -128,7 +133,7 @@ void Sampler2D::createVulkanTexture(VkDevice device, VkPhysicalDevice physDevice
     barrier.image = image;
     barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     barrier.subresourceRange.baseMipLevel = 0;
-    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.levelCount = mipLevels;
     barrier.subresourceRange.baseArrayLayer = 0;
     barrier.subresourceRange.layerCount = 1;
     barrier.srcAccessMask = 0;
@@ -138,7 +143,7 @@ void Sampler2D::createVulkanTexture(VkDevice device, VkPhysicalDevice physDevice
         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
         0, 0, nullptr, 0, nullptr, 1, &barrier);
 
-    // Copy buffer to image
+    // Copy buffer to image (mip level 0)
     VkBufferImageCopy region{};
     region.bufferOffset = 0;
     region.bufferRowLength = 0;
@@ -153,7 +158,61 @@ void Sampler2D::createVulkanTexture(VkDevice device, VkPhysicalDevice physDevice
     vkCmdCopyBufferToImage(cmdBuf, stagingBuffer, image,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-    // Transition image to SHADER_READ_ONLY
+    // Generate mipmaps via vkCmdBlitImage
+    int32_t mipWidth = width;
+    int32_t mipHeight = height;
+
+    for (uint32_t i = 1; i < mipLevels; i++) {
+        // Transition mip i-1 from TRANSFER_DST to TRANSFER_SRC
+        barrier.subresourceRange.baseMipLevel = i - 1;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+        vkCmdPipelineBarrier(cmdBuf,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+        // Blit from mip i-1 to mip i
+        VkImageBlit blit{};
+        blit.srcOffsets[0] = {0, 0, 0};
+        blit.srcOffsets[1] = {mipWidth, mipHeight, 1};
+        blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        blit.srcSubresource.mipLevel = i - 1;
+        blit.srcSubresource.baseArrayLayer = 0;
+        blit.srcSubresource.layerCount = 1;
+        blit.dstOffsets[0] = {0, 0, 0};
+        blit.dstOffsets[1] = {mipWidth > 1 ? mipWidth / 2 : 1,
+                              mipHeight > 1 ? mipHeight / 2 : 1, 1};
+        blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        blit.dstSubresource.mipLevel = i;
+        blit.dstSubresource.baseArrayLayer = 0;
+        blit.dstSubresource.layerCount = 1;
+
+        vkCmdBlitImage(cmdBuf,
+            image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            1, &blit, VK_FILTER_LINEAR);
+
+        // Transition mip i-1 from TRANSFER_SRC to SHADER_READ_ONLY
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        vkCmdPipelineBarrier(cmdBuf,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+        if (mipWidth > 1) mipWidth /= 2;
+        if (mipHeight > 1) mipHeight /= 2;
+    }
+
+    // Transition last mip level from TRANSFER_DST to SHADER_READ_ONLY
+    barrier.subresourceRange.baseMipLevel = mipLevels - 1;
+    barrier.subresourceRange.levelCount = 1;
     barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
     barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -184,7 +243,7 @@ void Sampler2D::createVulkanTexture(VkDevice device, VkPhysicalDevice physDevice
     viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
     viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     viewInfo.subresourceRange.baseMipLevel = 0;
-    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.levelCount = mipLevels;
     viewInfo.subresourceRange.baseArrayLayer = 0;
     viewInfo.subresourceRange.layerCount = 1;
     vkCreateImageView(device, &viewInfo, nullptr, &imageView);
@@ -200,6 +259,7 @@ void Sampler2D::createVulkanTexture(VkDevice device, VkPhysicalDevice physDevice
     samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
     samplerInfo.unnormalizedCoordinates = VK_FALSE;
     samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    samplerInfo.maxLod = (float)mipLevels;
     vkCreateSampler(device, &samplerInfo, nullptr, &sampler);
 
     data.clear();
@@ -225,4 +285,4 @@ void Sampler2D::destroyVulkanTexture(VkDevice device)
     }
 }
 
-#endif // !FLUTTER_VULKAN_SIMULATOR_STUB
+#endif // \!FLUTTER_VULKAN_SIMULATOR_STUB
