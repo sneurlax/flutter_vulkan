@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_vulkan/flutter_vulkan.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../shadertoy.dart';
 import '../states.dart';
 import 'shader_buttons.dart';
 import 'texture_chooser.dart';
@@ -59,6 +60,21 @@ class _ControlsState extends ConsumerState<Controls> {
                   ref.read(stateTextureCreated.notifier).state =
                       VulkanController().renderer.rendererStatus();
                   ref.read(stateTextureId.notifier).state = id;
+
+                  VulkanController().renderer.startThread();
+
+                  int idx = ref.read(stateShaderIndex);
+                  if (idx < 0) idx = 0;
+                  VulkanController().renderer.setShaderToy(
+                      shaderToy[idx]['fragment']!);
+                  ref.read(stateUrl.notifier).state = shaderToy[idx]['url']!;
+                  ref.read(stateShaderIndex.notifier).state = idx;
+
+                  fpsTimer = Timer.periodic(
+                      const Duration(seconds: 1), (timer) {
+                    ref.read(stateFPS.notifier).state =
+                        VulkanController().renderer.getFps();
+                  });
                 },
                 child: const Text('create texture'),
               ),
