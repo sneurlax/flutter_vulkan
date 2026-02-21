@@ -60,8 +60,6 @@ stopThread() {
     }
     renderer->stop();
     while (renderer->isLooping());
-    delete renderer;
-    renderer = nullptr;
 }
 
 std::string compileError;
