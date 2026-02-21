@@ -235,10 +235,11 @@ bool VulkanContext::initSwapchain(ANativeWindow *window, uint32_t width, uint32_
     swapchainInfo.imageColorSpace = colorSpace;
     swapchainInfo.imageExtent = swapchainExtent;
     swapchainInfo.imageArrayLayers = 1;
-    swapchainInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    swapchainInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     swapchainInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     swapchainInfo.preTransform = capabilities.currentTransform;
-    swapchainInfo.compositeAlpha = VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
+    swapchainInfo.compositeAlpha = (capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR)
+        ? VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR : VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
     swapchainInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
     swapchainInfo.clipped = VK_TRUE;
 

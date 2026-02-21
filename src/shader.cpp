@@ -96,22 +96,14 @@ uint32_t Shader::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags prope
 
 bool Shader::createRenderPass() {
     VkAttachmentDescription colorAttachment{};
-#ifdef _IS_ANDROID_
-    colorAttachment.format = vkCtx->swapchainFormat;
-#else
     colorAttachment.format = FLUTTER_VK_COLOR_FORMAT;
-#endif
     colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
     colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-#ifdef _IS_ANDROID_
-    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-#else
     colorAttachment.finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-#endif
 
     VkAttachmentReference colorAttachmentRef{};
     colorAttachmentRef.attachment = 0;
@@ -282,24 +274,6 @@ bool Shader::createPipeline(const std::vector<uint32_t> &vertSpirv,
 }
 
 bool Shader::createOffscreenResources() {
-#ifdef _IS_ANDROID_
-    // Create framebuffers from swapchain image views
-    swapchainFramebuffers.resize(vkCtx->swapchainImageViews.size());
-    for (size_t i = 0; i < vkCtx->swapchainImageViews.size(); i++) {
-        VkFramebufferCreateInfo fbInfo{};
-        fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-        fbInfo.renderPass = renderPass;
-        fbInfo.attachmentCount = 1;
-        fbInfo.pAttachments = &vkCtx->swapchainImageViews[i];
-        fbInfo.width = vkCtx->swapchainExtent.width;
-        fbInfo.height = vkCtx->swapchainExtent.height;
-        fbInfo.layers = 1;
-
-        if (vkCreateFramebuffer(vkCtx->device, &fbInfo, nullptr, &swapchainFramebuffers[i]) != VK_SUCCESS)
-            return false;
-    }
-    return true;
-#else
     // Create color image
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -355,7 +329,6 @@ bool Shader::createOffscreenResources() {
     fbInfo.layers = 1;
 
     return vkCreateFramebuffer(vkCtx->device, &fbInfo, nullptr, &framebuffer) == VK_SUCCESS;
-#endif
 }
 
 bool Shader::createStagingBuffer() {
@@ -475,11 +448,6 @@ void Shader::cleanupPipeline() {
         vkFreeMemory(vkCtx->device, stagingBufferMemory, nullptr);
         stagingBufferMemory = VK_NULL_HANDLE;
     }
-#ifdef _IS_ANDROID_
-    for (auto fb : swapchainFramebuffers)
-        vkDestroyFramebuffer(vkCtx->device, fb, nullptr);
-    swapchainFramebuffers.clear();
-#endif
     if (framebuffer != VK_NULL_HANDLE) {
         vkDestroyFramebuffer(vkCtx->device, framebuffer, nullptr);
         framebuffer = VK_NULL_HANDLE;
@@ -633,7 +601,9 @@ void Shader::drawFrame() {
         vkCtx->imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
     if (result == VK_ERROR_OUT_OF_DATE_KHR) return;
     if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) return;
+#endif
 
+    // Render to offscreen image (same pipeline on all platforms)
     vkResetCommandBuffer(commandBuffer, 0);
 
     VkCommandBufferBeginInfo beginInfo{};
@@ -641,66 +611,6 @@ void Shader::drawFrame() {
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(commandBuffer, &beginInfo);
 
-    VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
-    VkRenderPassBeginInfo renderPassInfo{};
-    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    renderPassInfo.renderPass = renderPass;
-    renderPassInfo.framebuffer = swapchainFramebuffers[imageIndex];
-    renderPassInfo.renderArea.offset = {0, 0};
-    renderPassInfo.renderArea.extent = vkCtx->swapchainExtent;
-    renderPassInfo.clearValueCount = 1;
-    renderPassInfo.pClearValues = &clearColor;
-
-    vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
-    vkCmdPushConstants(commandBuffer, pipelineLayout,
-                       VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                       sizeof(PushConstants), &pc);
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
-    vkCmdDraw(commandBuffer, 3, 1, 0, 0);
-    vkCmdEndRenderPass(commandBuffer);
-
-    vkEndCommandBuffer(commandBuffer);
-
-    // Submit with semaphore synchronization
-    VkSemaphore waitSemaphores[] = {vkCtx->imageAvailableSemaphore};
-    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
-    VkSemaphore signalSemaphores[] = {vkCtx->renderFinishedSemaphore};
-
-    VkSubmitInfo submitInfo{};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.waitSemaphoreCount = 1;
-    submitInfo.pWaitSemaphores = waitSemaphores;
-    submitInfo.pWaitDstStageMask = waitStages;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &commandBuffer;
-    submitInfo.signalSemaphoreCount = 1;
-    submitInfo.pSignalSemaphores = signalSemaphores;
-
-    vkQueueSubmit(vkCtx->graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
-
-    // Present
-    VkPresentInfoKHR presentInfo{};
-    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-    presentInfo.waitSemaphoreCount = 1;
-    presentInfo.pWaitSemaphores = signalSemaphores;
-    presentInfo.swapchainCount = 1;
-    presentInfo.pSwapchains = &vkCtx->swapchain;
-    presentInfo.pImageIndices = &imageIndex;
-
-    vkQueuePresentKHR(vkCtx->graphicsQueue, &presentInfo);
-    vkQueueWaitIdle(vkCtx->graphicsQueue);
-#else
-    // Reset and begin command buffer
-    vkResetCommandBuffer(commandBuffer, 0);
-
-    VkCommandBufferBeginInfo beginInfo{};
-    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(commandBuffer, &beginInfo);
-
-    // Begin render pass
     VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
     VkRenderPassBeginInfo renderPassInfo{};
     renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -715,21 +625,98 @@ void Shader::drawFrame() {
 
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
 
-    // Push constants
     vkCmdPushConstants(commandBuffer, pipelineLayout,
                        VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                        sizeof(PushConstants), &pc);
 
-    // Bind descriptor sets (iChannel textures)
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
 
-    // Draw full-screen triangle (3 vertices, no vertex buffer)
     vkCmdDraw(commandBuffer, 3, 1, 0, 0);
 
     vkCmdEndRenderPass(commandBuffer);
 
-    // The render pass transitions the image to TRANSFER_SRC_OPTIMAL via finalLayout.
+#ifdef _IS_ANDROID_
+    // Blit offscreen image to swapchain image
+    VkImage swapImage = vkCtx->swapchainImages[imageIndex];
+
+    VkImageMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = swapImage;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = 1;
+    barrier.srcAccessMask = 0;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+    vkCmdPipelineBarrier(commandBuffer,
+        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+    VkImageBlit blitRegion{};
+    blitRegion.srcOffsets[0] = {0, 0, 0};
+    blitRegion.srcOffsets[1] = {width, height, 1};
+    blitRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    blitRegion.srcSubresource.mipLevel = 0;
+    blitRegion.srcSubresource.baseArrayLayer = 0;
+    blitRegion.srcSubresource.layerCount = 1;
+    blitRegion.dstOffsets[0] = {0, 0, 0};
+    blitRegion.dstOffsets[1] = {(int32_t)vkCtx->swapchainExtent.width,
+                                (int32_t)vkCtx->swapchainExtent.height, 1};
+    blitRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    blitRegion.dstSubresource.mipLevel = 0;
+    blitRegion.dstSubresource.baseArrayLayer = 0;
+    blitRegion.dstSubresource.layerCount = 1;
+
+    vkCmdBlitImage(commandBuffer,
+        colorImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        swapImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        1, &blitRegion, VK_FILTER_NEAREST);
+
+    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = 0;
+
+    vkCmdPipelineBarrier(commandBuffer,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+        0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+    vkEndCommandBuffer(commandBuffer);
+
+    VkSemaphore waitSemaphores[] = {vkCtx->imageAvailableSemaphore};
+    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_TRANSFER_BIT};
+    VkSemaphore signalSemaphores[] = {vkCtx->renderFinishedSemaphore};
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.waitSemaphoreCount = 1;
+    submitInfo.pWaitSemaphores = waitSemaphores;
+    submitInfo.pWaitDstStageMask = waitStages;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+    submitInfo.signalSemaphoreCount = 1;
+    submitInfo.pSignalSemaphores = signalSemaphores;
+
+    vkQueueSubmit(vkCtx->graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+
+    VkPresentInfoKHR presentInfo{};
+    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    presentInfo.waitSemaphoreCount = 1;
+    presentInfo.pWaitSemaphores = signalSemaphores;
+    presentInfo.swapchainCount = 1;
+    presentInfo.pSwapchains = &vkCtx->swapchain;
+    presentInfo.pImageIndices = &imageIndex;
+
+    vkQueuePresentKHR(vkCtx->graphicsQueue, &presentInfo);
+    vkQueueWaitIdle(vkCtx->graphicsQueue);
+#else
     // Copy color image to staging buffer
     VkBufferImageCopy region{};
     region.bufferOffset = 0;

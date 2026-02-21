@@ -63,10 +63,6 @@ private:
     VkImageView colorImageView = VK_NULL_HANDLE;
     VkFramebuffer framebuffer = VK_NULL_HANDLE;
 
-#ifdef _IS_ANDROID_
-    std::vector<VkFramebuffer> swapchainFramebuffers;
-#endif
-
     // Pixel readback
     VkBuffer stagingBuffer = VK_NULL_HANDLE;
     VkDeviceMemory stagingBufferMemory = VK_NULL_HANDLE;
