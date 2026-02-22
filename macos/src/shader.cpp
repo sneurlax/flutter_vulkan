@@ -673,7 +673,19 @@ void Shader::drawFrame() {
     fl_texture_registrar_mark_texture_frame_available(
         self->texture_registrar, self->texture);
 #elif defined(_IS_MACOS_)
-    memcpy(self->buffer, stagingMapped, width * height * 4);
+    {
+        auto *src = static_cast<uint8_t *>(stagingMapped);
+        auto *dst = self->buffer;
+        int srcStride = width * 4;
+        int dstStride = self->bytesPerRow;
+        if (srcStride == dstStride) {
+            memcpy(dst, src, width * height * 4);
+        } else {
+            for (int y = 0; y < height; y++) {
+                memcpy(dst + y * dstStride, src + y * srcStride, srcStride);
+            }
+        }
+    }
     if (self->markFrameAvailable) {
         self->markFrameAvailable(self->registryRef);
     }
