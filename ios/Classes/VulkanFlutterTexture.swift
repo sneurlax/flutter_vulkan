@@ -6,6 +6,7 @@ class VulkanFlutterTexture: NSObject, FlutterTexture {
     let width: Int
     let height: Int
     var pixelBufferBase: UnsafeMutablePointer<UInt8>?
+    var bytesPerRow: Int = 0
     var registryInfo: TextureRegistryInfo?
 
     init(width: Int, height: Int) {
@@ -35,6 +36,7 @@ class VulkanFlutterTexture: NSObject, FlutterTexture {
             // Lock and get the base address - keep it locked for the render thread to write to
             CVPixelBufferLockBaseAddress(pb, [])
             pixelBufferBase = CVPixelBufferGetBaseAddress(pb)?.assumingMemoryBound(to: UInt8.self)
+            bytesPerRow = CVPixelBufferGetBytesPerRow(pb)
         }
     }
 

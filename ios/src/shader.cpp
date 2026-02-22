@@ -8,8 +8,8 @@
 
 #define LOG_TAG_SHADER "NATIVE SHADER"
 
-#ifdef _IS_MACOS_
-// macOS CVPixelBuffer uses BGRA format
+#if defined(_IS_MACOS_) || defined(_IS_IOS_)
+// macOS/iOS CVPixelBuffer uses BGRA format
 #define FLUTTER_VK_COLOR_FORMAT VK_FORMAT_B8G8R8A8_UNORM
 #else
 #define FLUTTER_VK_COLOR_FORMAT VK_FORMAT_R8G8B8A8_UNORM
@@ -674,8 +674,20 @@ void Shader::drawFrame() {
     memcpy(self->myTexture->buffer, stagingMapped, width * height * 4);
     fl_texture_registrar_mark_texture_frame_available(
         self->texture_registrar, self->texture);
-#elif defined(_IS_MACOS_)
-    memcpy(self->buffer, stagingMapped, width * height * 4);
+#elif defined(_IS_MACOS_) || defined(_IS_IOS_)
+    {
+        auto *src = static_cast<uint8_t *>(stagingMapped);
+        auto *dst = self->buffer;
+        int srcStride = width * 4;
+        int dstStride = self->bytesPerRow;
+        if (srcStride == dstStride) {
+            memcpy(dst, src, width * height * 4);
+        } else {
+            for (int y = 0; y < height; y++) {
+                memcpy(dst + y * dstStride, src + y * srcStride, srcStride);
+            }
+        }
+    }
     if (self->markFrameAvailable) {
         self->markFrameAvailable(self->registryRef);
     }
