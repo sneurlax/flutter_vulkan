@@ -21,15 +21,14 @@ Pod::Spec.new do |s|
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
     'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) _IS_IOS_=1',
     'HEADER_SEARCH_PATHS' => '$(PODS_TARGET_SRCROOT)/src $(PODS_TARGET_SRCROOT)/../third_party/shaderc/include $(PODS_TARGET_SRCROOT)/../third_party/vulkan/include $(PODS_TARGET_SRCROOT)/Classes/include',
-    'OTHER_LDFLAGS[sdk=iphoneos*]' => '-lc++ -lMoltenVK -lshaderc_combined',
-    'LIBRARY_SEARCH_PATHS[sdk=iphoneos*]' => '$(PODS_TARGET_SRCROOT)/Libraries',
+    'OTHER_LDFLAGS' => '-lc++',
     'SWIFT_INCLUDE_PATHS' => '$(PODS_TARGET_SRCROOT)/Classes/include',
   }
 
   s.swift_version = '5.0'
 
-  # Vendored static libraries
-  s.vendored_libraries = 'Libraries/libMoltenVK.a', 'Libraries/libshaderc_combined.a'
+  # Vendored xcframeworks (device + simulator)
+  s.vendored_frameworks = 'Frameworks/MoltenVK.xcframework', 'Frameworks/shaderc_combined.xcframework'
 
   # System frameworks required by MoltenVK
   s.frameworks = 'Metal', 'Foundation', 'QuartzCore', 'CoreGraphics',
