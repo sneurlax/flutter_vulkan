@@ -3,11 +3,7 @@
 
 #ifdef __APPLE__
     #include <TargetConditionals.h>
-    #if TARGET_OS_SIMULATOR
-        #define FLUTTER_VULKAN_SIMULATOR_STUB 1
-    #else
-        #define _IS_IOS_ 1
-    #endif
+    #define _IS_IOS_ 1
 #endif
 
 #ifdef __linux__
@@ -41,7 +37,7 @@ static VulkanPluginContext ctx_f = {
 
 #endif
 
-#if defined(_IS_IOS_) || defined(FLUTTER_VULKAN_SIMULATOR_STUB)
+#ifdef _IS_IOS_
 #include <iostream>
 #include <cstdint>
 #define LOGD(TAG,...) printf(TAG),printf(" "),printf(__VA_ARGS__),printf("\n");fflush(stdout);
@@ -53,11 +49,13 @@ typedef struct flutter_vulkan_plugin_context
     uint8_t *buffer;
     int width;
     int height;
+    int bytesPerRow;
     void (*markFrameAvailable)(void *registryRef);
     void *registryRef;
 } VulkanPluginContext;
 static VulkanPluginContext ctx_f = {
         nullptr,
+        0,
         0,
         0,
         nullptr,

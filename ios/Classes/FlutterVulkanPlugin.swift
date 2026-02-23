@@ -49,7 +49,8 @@ public class FlutterVulkanPlugin: NSObject, FlutterPlugin {
             // Create the registry info and store as opaque pointer
             let registryInfo = TextureRegistryInfo(
                 registry: textureRegistry!,
-                textureId: textureId
+                textureId: textureId,
+                texture: vulkanTexture!
             )
             vulkanTexture!.registryInfo = registryInfo
             let opaqueRef = Unmanaged.passUnretained(registryInfo).toOpaque()
@@ -61,9 +62,11 @@ public class FlutterVulkanPlugin: NSObject, FlutterPlugin {
                 buffer: vulkanTexture!.pixelBufferBase,
                 width: Int32(width),
                 height: Int32(height),
+                bytesPerRow: Int32(vulkanTexture!.bytesPerRow),
                 markFrameAvailable: { registryRef in
                     guard let ref = registryRef else { return }
                     let info = Unmanaged<TextureRegistryInfo>.fromOpaque(ref).takeUnretainedValue()
+                    info.texture.flushBuffer()
                     DispatchQueue.main.async {
                         info.registry.textureFrameAvailable(info.textureId)
                     }
@@ -84,9 +87,11 @@ public class FlutterVulkanPlugin: NSObject, FlutterPlugin {
 class TextureRegistryInfo {
     let registry: FlutterTextureRegistry
     let textureId: Int64
+    let texture: VulkanFlutterTexture
 
-    init(registry: FlutterTextureRegistry, textureId: Int64) {
+    init(registry: FlutterTextureRegistry, textureId: Int64, texture: VulkanFlutterTexture) {
         self.registry = registry
         self.textureId = textureId
+        self.texture = texture
     }
 }

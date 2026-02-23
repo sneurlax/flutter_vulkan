@@ -6,6 +6,7 @@ class VulkanFlutterTexture: NSObject, FlutterTexture {
     let width: Int
     let height: Int
     var pixelBufferBase: UnsafeMutablePointer<UInt8>?
+    var bytesPerRow: Int = 0
     var registryInfo: TextureRegistryInfo?
 
     init(width: Int, height: Int) {
@@ -13,12 +14,13 @@ class VulkanFlutterTexture: NSObject, FlutterTexture {
         self.height = height
         super.init()
 
-        // Create a CVPixelBuffer in BGRA format
+        // Create a CVPixelBuffer in BGRA format with Metal and IOSurface compatibility
         let attrs: [String: Any] = [
             kCVPixelBufferWidthKey as String: width,
             kCVPixelBufferHeightKey as String: height,
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
             kCVPixelBufferIOSurfacePropertiesKey as String: [:] as [String: Any],
+            kCVPixelBufferMetalCompatibilityKey as String: true,
         ]
 
         let status = CVPixelBufferCreate(
@@ -34,6 +36,7 @@ class VulkanFlutterTexture: NSObject, FlutterTexture {
             // Lock and get the base address - keep it locked for the render thread to write to
             CVPixelBufferLockBaseAddress(pb, [])
             pixelBufferBase = CVPixelBufferGetBaseAddress(pb)?.assumingMemoryBound(to: UInt8.self)
+            bytesPerRow = CVPixelBufferGetBytesPerRow(pb)
         }
     }
 
@@ -42,6 +45,15 @@ class VulkanFlutterTexture: NSObject, FlutterTexture {
             CVPixelBufferUnlockBaseAddress(pb, [])
         }
     }
+
+    /// Flush CPU writes to IOSurface by cycling the lock.
+    /// Call after memcpy and before notifying Flutter.
+    func flushBuffer() {
+        guard let pb = pixelBuffer else { return }
+        CVPixelBufferUnlockBaseAddress(pb, [])
+        CVPixelBufferLockBaseAddress(pb, [])
+    }
+
 
     func copyPixelBuffer() -> Unmanaged<CVPixelBuffer>? {
         guard let pb = pixelBuffer else { return nil }

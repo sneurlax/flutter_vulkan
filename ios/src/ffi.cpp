@@ -1,5 +1,4 @@
 #include "common.h"
-#if !FLUTTER_VULKAN_SIMULATOR_STUB
 
 #include "ffi.h"
 #include "renderer.h"
@@ -192,5 +191,3 @@ replaceSampler2DUniform(const char *name, int width, int height, void *val)
         renderer->setNewTextureMsg();
     return replaced;
 }
-
-#endif // !FLUTTER_VULKAN_SIMULATOR_STUB

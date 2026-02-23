@@ -61,6 +61,7 @@ public class FlutterVulkanPlugin: NSObject, FlutterPlugin {
                 buffer: vulkanTexture!.pixelBufferBase,
                 width: Int32(width),
                 height: Int32(height),
+                bytesPerRow: Int32(vulkanTexture!.bytesPerRow),
                 markFrameAvailable: { registryRef in
                     guard let ref = registryRef else { return }
                     let info = Unmanaged<TextureRegistryInfo>.fromOpaque(ref).takeUnretainedValue()
