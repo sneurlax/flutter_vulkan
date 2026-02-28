@@ -6,3 +6,5 @@ build/
 .metadata
 pubspec.lock
 Podfile.lock
+
+rust/target/
