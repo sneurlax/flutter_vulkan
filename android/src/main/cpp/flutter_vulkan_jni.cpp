@@ -1,43 +1,33 @@
 #include <jni.h>
-#include <android/native_window.h>
-#include <android/native_window_jni.h>
+#include <cstdint>
+#include <cstring>
 
-#include "../../../../src/common.h"
-#include "../../../../src/ffi.h"
+extern "C" {
+    void createRenderer(uint8_t *buffer, int width, int height);
+    void deleteRenderer();
+    void *getRenderer();
+    void stopThread();
+    void setFrameCallback(void (*callback)(void*), void* user_data);
+}
 
-#define LOG_TAG_JNI "FLUTTER_VULKAN_JNI"
-
-static ANativeWindow *nativeWindow = nullptr;
+static uint8_t *pixelBuffer = nullptr;
+static int bufWidth = 0, bufHeight = 0;
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_example_flutter_1vulkan_FlutterVulkanPlugin_nativeCreateSurface(
         JNIEnv *env, jobject thiz, jobject surface, jint width, jint height) {
-    nativeWindow = ANativeWindow_fromSurface(env, surface);
-    if (nativeWindow == nullptr) {
-        LOGD(LOG_TAG_JNI, "Failed to get ANativeWindow from Surface");
-        return;
-    }
-
-    ANativeWindow_setBuffersGeometry(nativeWindow, width, height, WINDOW_FORMAT_RGBA_8888);
-
-    ctx_f.window = nativeWindow;
-    ctx_f.width = width;
-    ctx_f.height = height;
-
-    createRenderer(&ctx_f);
-    LOGD(LOG_TAG_JNI, "Surface created: %dx%d", width, height);
+    bufWidth = width;
+    bufHeight = height;
+    delete[] pixelBuffer;
+    pixelBuffer = new uint8_t[width * height * 4]();
+    createRenderer(pixelBuffer, width, height);
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_example_flutter_1vulkan_FlutterVulkanPlugin_nativeDestroySurface(
         JNIEnv *env, jobject thiz) {
-    if (getRenderer() != nullptr) {
-        stopThread();
-    }
-    if (nativeWindow != nullptr) {
-        ANativeWindow_release(nativeWindow);
-        nativeWindow = nullptr;
-    }
-    ctx_f.window = nullptr;
-    LOGD(LOG_TAG_JNI, "Surface destroyed");
+    if (getRenderer() != nullptr) stopThread();
+    deleteRenderer();
+    delete[] pixelBuffer;
+    pixelBuffer = nullptr;
 }
