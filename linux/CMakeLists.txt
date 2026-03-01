@@ -7,19 +7,39 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(PLUGIN_NAME "flutter_vulkan_plugin")
+set(RUST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../rust")
 
+# ---------------------------------------------------------------------------
+# Build Rust native library via cargo
+# ---------------------------------------------------------------------------
+if(CMAKE_BUILD_TYPE MATCHES "Debug")
+  set(RUST_BUILD_FLAG "")
+  set(RUST_PROFILE "debug")
+else()
+  set(RUST_BUILD_FLAG "--release")
+  set(RUST_PROFILE "release")
+endif()
+
+set(RUST_LIB "${RUST_DIR}/target/${RUST_PROFILE}/libflutter_vulkan_native.a")
+
+add_custom_command(
+    OUTPUT "${RUST_LIB}"
+    COMMAND cargo build ${RUST_BUILD_FLAG} --manifest-path="${RUST_DIR}/Cargo.toml"
+    COMMENT "Building Rust native library (${RUST_PROFILE})..."
+    WORKING_DIRECTORY "${RUST_DIR}"
+)
+add_custom_target(rust_build DEPENDS "${RUST_LIB}")
+
+# ---------------------------------------------------------------------------
+# Flutter plugin glue (C++ – talks to the Flutter Linux embedding API)
+# ---------------------------------------------------------------------------
 set(PLUGIN_SOURCES
   flutter_vulkan_plugin.cc
   fl_my_texture.cc
-  ../src/ffi.cpp
-  ../src/renderer.cpp
-  ../src/shader.cpp
-  ../src/uniform_queue.cpp
-  ../src/sampler2d.cpp
-  ../src/vulkan_context.cpp
 )
 
 add_library(${PLUGIN_NAME} SHARED ${PLUGIN_SOURCES})
+add_dependencies(${PLUGIN_NAME} rust_build)
 
 set_target_properties(${PLUGIN_NAME} PROPERTIES
   CXX_VISIBILITY_PRESET hidden)
@@ -32,37 +52,11 @@ target_include_directories(${PLUGIN_NAME} INTERFACE
 )
 target_include_directories(${PLUGIN_NAME} PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/include"
-  "${CMAKE_CURRENT_SOURCE_DIR}/../src"
-  "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/shaderc/include"
 )
 
 target_link_libraries(${PLUGIN_NAME} PRIVATE flutter)
 target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::GTK)
+target_link_libraries(${PLUGIN_NAME} PRIVATE "${RUST_LIB}")
 
-# Vulkan
-find_package(Vulkan REQUIRED)
-target_link_libraries(${PLUGIN_NAME} PRIVATE Vulkan::Vulkan)
-
-# shaderc - vendored in third_party/
-set(SHADERC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/shaderc")
-find_library(SHADERC_LIB shaderc
-  HINTS "${SHADERC_DIR}/lib"
-  NO_DEFAULT_PATH
-)
-if(NOT SHADERC_LIB)
-  # Fallback to system
-  find_library(SHADERC_LIB shaderc HINTS /usr/lib /usr/lib/x86_64-linux-gnu)
-endif()
-if(NOT SHADERC_LIB)
-  find_library(SHADERC_LIB shaderc_combined HINTS /usr/lib /usr/lib/x86_64-linux-gnu)
-endif()
-if(NOT SHADERC_LIB)
-  message(FATAL_ERROR "Could not find shaderc library.")
-endif()
-target_link_libraries(${PLUGIN_NAME} PRIVATE ${SHADERC_LIB})
-
-# Bundle the shaderc shared library with the app
-set(flutter_vulkan_bundled_libraries
-  "${SHADERC_DIR}/lib/libshaderc.so.1"
-  PARENT_SCOPE
-)
+# Rust dependencies that the static library needs at link time
+target_link_libraries(${PLUGIN_NAME} PRIVATE dl pthread m)

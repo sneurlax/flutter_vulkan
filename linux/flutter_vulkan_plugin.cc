@@ -7,13 +7,54 @@
 
 #include <cstring>
 #include <iostream>
-#include <memory>
 
 #include "include/fl_my_texture.h"
-#include "../src/ffi.h"
-#include "../src/common.h"
 
+// ---------------------------------------------------------------------------
+// Rust FFI – symbols exported by libflutter_vulkan_plugin.so (the Rust cdylib)
+// ---------------------------------------------------------------------------
+extern "C" {
+    void createRenderer(uint8_t *buffer, int width, int height);
+    void deleteRenderer();
+    void *getRenderer();
+    void stopThread();
+    void setFrameCallback(void (*callback)(void *), void *user_data);
+}
+
+// ---------------------------------------------------------------------------
+// Frame-available callback – invoked from the Rust render loop after each
+// frame has been written into the pixel buffer.  Marshalled onto the GLib
+// main loop so that the Flutter texture registrar call happens on the
+// platform thread.
+// ---------------------------------------------------------------------------
+struct FrameCallbackData {
+    FlTextureRegistrar *registrar;
+    FlTexture *texture;
+};
+
+static gboolean mark_frame_on_main_thread(gpointer user_data)
+{
+    auto *data = static_cast<FrameCallbackData *>(user_data);
+    fl_texture_registrar_mark_texture_frame_available(data->registrar,
+                                                      data->texture);
+    // Return G_SOURCE_REMOVE – this is a one-shot idle callback.
+    return G_SOURCE_REMOVE;
+}
+
+static void on_frame_available(void *user_data)
+{
+    auto *data = static_cast<FrameCallbackData *>(user_data);
+    // Schedule the texture-frame notification on the platform thread.
+    g_idle_add(mark_frame_on_main_thread, data);
+}
+
+// ---------------------------------------------------------------------------
+// GObject boilerplate
+// ---------------------------------------------------------------------------
 G_DEFINE_TYPE(FlutterVulkanPlugin, flutter_vulkan_plugin, g_object_get_type())
+
+// Persistent callback data – lives as long as the plugin instance.
+static FrameCallbackData *g_frame_cb_data = nullptr;
 
 static void flutter_vulkan_plugin_handle_method_call(
 	FlutterVulkanPlugin *self,
@@ -55,12 +96,14 @@ static void flutter_vulkan_plugin_handle_method_call(
 			fl_texture_registrar_register_texture(self->texture_registrar, self->texture);
 			fl_texture_registrar_mark_texture_frame_available(self->texture_registrar, self->texture);
 
-			ctx_f.texture_registrar = self->texture_registrar;
-			ctx_f.myTexture = self->myTexture;
-			ctx_f.texture = self->texture;
-			ctx_f.width = width;
-			ctx_f.height = height;
-			createRenderer(&ctx_f);
+			// Hand the pixel buffer to the Rust renderer.
+			createRenderer(self->myTexture->buffer, width, height);
+
+			// Set up the frame callback so Rust can notify Flutter of new frames.
+			// Must be AFTER createRenderer so the RENDERER global exists.
+			delete g_frame_cb_data;
+			g_frame_cb_data = new FrameCallbackData{self->texture_registrar, self->texture};
+			setFrameCallback(on_frame_available, g_frame_cb_data);
 
 			g_autoptr(FlValue) result =
 				fl_value_new_int(reinterpret_cast<int64_t>(self->texture));
@@ -77,6 +120,8 @@ static void flutter_vulkan_plugin_handle_method_call(
 
 static void flutter_vulkan_plugin_dispose(GObject *object)
 {
+	delete g_frame_cb_data;
+	g_frame_cb_data = nullptr;
 	G_OBJECT_CLASS(flutter_vulkan_plugin_parent_class)->dispose(object);
 }
 
