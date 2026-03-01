@@ -1,59 +1,38 @@
 cmake_minimum_required(VERSION 3.10)
-
 project("flutter_vulkan_plugin" LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../src")
+# JNI bridge only
+add_library(flutter_vulkan_plugin SHARED flutter_vulkan_jni.cpp)
 
-add_library(flutter_vulkan_plugin SHARED
-    flutter_vulkan_jni.cpp
-    ${SRC_DIR}/ffi.cpp
-    ${SRC_DIR}/renderer.cpp
-    ${SRC_DIR}/shader.cpp
-    ${SRC_DIR}/uniform_queue.cpp
-    ${SRC_DIR}/sampler2d.cpp
-    ${SRC_DIR}/vulkan_context.cpp
+# Link Rust library - it needs to be pre-built for the target ABI
+# The Rust library exports the same C FFI symbols
+set(RUST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../rust")
+
+# For Android, Rust must be cross-compiled. We expect the .so at:
+# rust/target/<triple>/release/libflutter_vulkan_plugin.so
+# where triple is: aarch64-linux-android or x86_64-linux-android
+if(ANDROID_ABI STREQUAL "arm64-v8a")
+    set(RUST_TARGET "aarch64-linux-android")
+elseif(ANDROID_ABI STREQUAL "x86_64")
+    set(RUST_TARGET "x86_64-linux-android")
+endif()
+
+set(RUST_LIB "${RUST_DIR}/target/${RUST_TARGET}/release/libflutter_vulkan_plugin.so")
+
+# Build Rust (requires cargo-ndk or manual cross-compilation)
+add_custom_command(
+    OUTPUT "${RUST_LIB}"
+    COMMAND cargo ndk -t ${ANDROID_ABI} build --release --manifest-path="${RUST_DIR}/Cargo.toml"
+    COMMENT "Building Rust library for Android ${ANDROID_ABI}..."
+    WORKING_DIRECTORY "${RUST_DIR}"
 )
+add_custom_target(rust_build DEPENDS "${RUST_LIB}")
+add_dependencies(flutter_vulkan_plugin rust_build)
 
-target_include_directories(flutter_vulkan_plugin PRIVATE
-    ${SRC_DIR}
-)
-
-# Vulkan
-find_package(Vulkan REQUIRED)
-target_link_libraries(flutter_vulkan_plugin PRIVATE Vulkan::Vulkan)
-
-# Android libs
+target_link_libraries(flutter_vulkan_plugin PRIVATE "${RUST_LIB}")
 target_link_libraries(flutter_vulkan_plugin PRIVATE android log)
 
-# shaderc — build from NDK sources via ndk-build (lazy: only when .a is missing)
-set(SHADERC_SRC "${ANDROID_NDK}/sources/third_party/shaderc")
-set(SHADERC_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaderc_build")
-set(SHADERC_OUTPUT "${SHADERC_BUILD_DIR}/libs/c++_shared/${ANDROID_ABI}/libshaderc.a")
-
-add_custom_command(
-    OUTPUT "${SHADERC_OUTPUT}"
-    COMMAND "${ANDROID_NDK}/ndk-build"
-        NDK_PROJECT_PATH=${SHADERC_BUILD_DIR}
-        APP_BUILD_SCRIPT=${SHADERC_SRC}/Android.mk
-        APP_ABI=${ANDROID_ABI}
-        APP_STL=c++_shared
-        APP_PLATFORM=android-${ANDROID_NATIVE_API_LEVEL}
-        libshaderc_combined
-        -j4
-    COMMENT "Building shaderc from NDK sources for ${ANDROID_ABI}..."
-)
-add_custom_target(shaderc_build DEPENDS "${SHADERC_OUTPUT}")
-
-add_library(shaderc STATIC IMPORTED)
-set_target_properties(shaderc PROPERTIES IMPORTED_LOCATION "${SHADERC_OUTPUT}")
-add_dependencies(shaderc shaderc_build)
-
-target_include_directories(flutter_vulkan_plugin PRIVATE "${SHADERC_SRC}/libshaderc/include")
-target_link_libraries(flutter_vulkan_plugin PRIVATE shaderc)
-
-# Release optimizations: -O2, hide internal symbols, strip, disable validation layers
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     target_compile_options(flutter_vulkan_plugin PRIVATE -O2 -DNDEBUG -fvisibility=hidden)
     target_link_options(flutter_vulkan_plugin PRIVATE -Wl,--gc-sections -Wl,-s)
