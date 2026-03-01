@@ -1,5 +1,5 @@
 import 'flutter_vulkan_platform_interface.dart';
-import 'web/webgl_renderer.dart';
+import 'web/wasm_renderer.dart';
 
 class FlutterVulkanWeb extends FlutterVulkanPlatform {
   FlutterVulkanWeb._();
@@ -10,6 +10,6 @@ class FlutterVulkanWeb extends FlutterVulkanPlatform {
 
   @override
   Future<int> createSurface(int width, int height) async {
-    return WebGLRenderer.instance.createSurface(width, height);
+    return WasmRenderer.instance.createSurface(width, height);
   }
 }
