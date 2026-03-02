@@ -229,6 +229,13 @@ impl ShaderPipeline {
             Err(e) => return e,
         };
 
+        // On WebGPU (WASM), Dawn/Tint enforces derivative uniformity analysis
+        // which rejects textureSample / dpdx / dpdy in non-uniform control flow.
+        // ShaderToy shaders commonly violate this.  The WGSL diagnostic directive
+        // tells the validator to accept these calls everywhere.
+        #[cfg(target_arch = "wasm32")]
+        let frag_wgsl = format!("diagnostic(off, derivative_uniformity);\n{frag_wgsl}");
+
         log::info!("init_shader: vertex WGSL ({} bytes), fragment WGSL ({} bytes)", vert_wgsl.len(), frag_wgsl.len());
         log::debug!("VERTEX WGSL:\n{vert_wgsl}");
         log::debug!("FRAGMENT WGSL:\n{frag_wgsl}");
