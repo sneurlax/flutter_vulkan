@@ -13,7 +13,7 @@ import '../vulkan_renderer.dart';
 
 @JS('wasm_bindgen.init_renderer')
 external JSPromise<JSAny?> _jsInitRenderer(
-    JSString canvasId, JSNumber width, JSNumber height);
+    web.HTMLCanvasElement canvas, JSNumber width, JSNumber height);
 
 @JS('wasm_bindgen.start_render_loop')
 external void _jsStartRenderLoop();
@@ -97,32 +97,37 @@ class WasmRenderer implements VulkanRenderer {
     _canvasWidth = width;
     _canvasHeight = height;
 
-    // Create the canvas element.
-    final canvasId = 'flutter_vulkan_canvas_$viewId';
+    // Create the canvas element and temporarily attach it to the DOM.
+    // Some browsers require the canvas to be in the document for WebGPU
+    // adapter discovery to succeed (compatible_surface check).
     final canvas = web.HTMLCanvasElement()
-      ..id = canvasId
       ..width = width
       ..height = height;
-    canvas.style.width = '100%';
-    canvas.style.height = '100%';
+    canvas.style
+      ..width = '100%'
+      ..height = '100%'
+      ..position = 'absolute'
+      ..left = '-9999px';
+    web.document.body!.append(canvas);
 
-    // Register with Flutter's platform view registry.
+    // Register with Flutter's platform view registry.  When the
+    // HtmlElementView renders, the factory reparents the canvas.
     ui_web.platformViewRegistry.registerViewFactory(viewType, (int id) {
+      canvas.style.position = '';
+      canvas.style.left = '';
       return canvas;
     });
 
     // Load the WASM module if this is the first time.
     if (!_initialized) {
-      // Call the wasm-bindgen default export to load the .wasm binary.
-      // The glue JS picks up the `.wasm` file relative to itself.
       final promise = _wasmBindgenInit.callAsFunction(null) as JSPromise;
       await promise.toDart;
       _initialized = true;
     }
 
-    // Initialise the Rust renderer against this canvas.
+    // Initialise the Rust renderer — pass the canvas element directly.
     final initPromise = _jsInitRenderer(
-      canvasId.toJS,
+      canvas,
       width.toJS,
       height.toJS,
     );
