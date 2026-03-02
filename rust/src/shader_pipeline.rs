@@ -30,6 +30,11 @@ pub struct ShaderPipeline {
     // Uniform buffer (replaces Vulkan push constants)
     uniform_buffer: Option<wgpu::Buffer>,
 
+    // Target format for the render pipeline's fragment output.
+    // Defaults to Rgba8Unorm (native offscreen), but must be set to the
+    // surface format for web/surface rendering via `set_surface_format`.
+    target_format: wgpu::TextureFormat,
+
     // Offscreen render target
     output_texture: Option<wgpu::Texture>,
     output_texture_view: Option<wgpu::TextureView>,
@@ -67,6 +72,7 @@ impl ShaderPipeline {
             vertex_source: String::new(),
             fragment_source: String::new(),
             uniform_queue: UniformQueue::new(),
+            target_format: wgpu::TextureFormat::Rgba8Unorm,
             render_pipeline: None,
             pipeline_layout: None,
             bind_group_layout: None,
@@ -93,6 +99,13 @@ impl ShaderPipeline {
 
     pub fn set_is_continuous(&mut self, b: bool) {
         self.is_continuous = b;
+    }
+
+    /// Set the texture format used for the render pipeline's fragment output.
+    /// Must be called before `init_shader` / `init_shader_toy` to match the
+    /// surface format on web.
+    pub fn set_target_format(&mut self, format: wgpu::TextureFormat) {
+        self.target_format = format;
     }
 
     // -------------------------------------------------------------- uniforms
@@ -216,6 +229,10 @@ impl ShaderPipeline {
             Err(e) => return e,
         };
 
+        log::info!("init_shader: vertex WGSL ({} bytes), fragment WGSL ({} bytes)", vert_wgsl.len(), frag_wgsl.len());
+        log::debug!("VERTEX WGSL:\n{vert_wgsl}");
+        log::debug!("FRAGMENT WGSL:\n{frag_wgsl}");
+
         let vert_module = self
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -280,8 +297,8 @@ impl ShaderPipeline {
                         module: &frag_module,
                         entry_point: Some("main"),
                         targets: &[Some(wgpu::ColorTargetState {
-                            format: wgpu::TextureFormat::Rgba8Unorm,
-                            blend: None,
+                            format: self.target_format,
+                            blend: Some(wgpu::BlendState::REPLACE),
                             write_mask: wgpu::ColorWrites::ALL,
                         })],
                         compilation_options: Default::default(),
@@ -312,7 +329,7 @@ impl ShaderPipeline {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
+            format: self.target_format,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
@@ -320,17 +337,20 @@ impl ShaderPipeline {
         let output_texture_view =
             output_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        // -- readback buffer ------------------------------------------------------
-        // Row stride must be aligned to 256 bytes for copy_texture_to_buffer.
-        let bytes_per_row = self.width * 4;
-        let padded_bytes_per_row = (bytes_per_row + 255) & !255;
-        let buffer_size = (padded_bytes_per_row as u64) * (self.height as u64);
-        let output_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("shader_pipeline_readback"),
-            size: buffer_size,
-            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        // -- readback buffer (native only) ----------------------------------------
+        // On WASM we render directly to the surface, so no readback is needed.
+        #[cfg(not(target_arch = "wasm32"))]
+        let output_buffer = {
+            let bytes_per_row = self.width * 4;
+            let padded_bytes_per_row = (bytes_per_row + 255) & !255;
+            let buffer_size = (padded_bytes_per_row as u64) * (self.height as u64);
+            self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("shader_pipeline_readback"),
+                size: buffer_size,
+                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            })
+        };
 
         // -- uniform buffer -------------------------------------------------------
         let uniform_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -360,16 +380,18 @@ impl ShaderPipeline {
         self.uniform_buffer = Some(uniform_buffer);
         self.output_texture = Some(output_texture);
         self.output_texture_view = Some(output_texture_view);
-        self.output_buffer = Some(output_buffer);
+        #[cfg(not(target_arch = "wasm32"))]
+        { self.output_buffer = Some(output_buffer); }
         self.sampler_textures = sampler_textures;
 
         self.start_time = instant_now();
         self.pipeline_valid = true;
 
         log::info!(
-            "wgpu pipeline created successfully ({}x{})",
+            "wgpu pipeline created successfully ({}x{}, format={:?})",
             self.width,
-            self.height
+            self.height,
+            self.target_format,
         );
 
         String::new()
@@ -549,26 +571,20 @@ impl ShaderPipeline {
         queue: &wgpu::Queue,
         target_view: &wgpu::TextureView,
     ) {
-        if !self.pipeline_valid {
-            return;
+        // Even if the pipeline is invalid, clear to magenta so we can
+        // distinguish "pipeline broken" (magenta) from "no rendering" (black).
+        let pipeline = match (self.pipeline_valid, self.render_pipeline.as_ref()) {
+            (true, Some(p)) => Some(p),
+            _ => None,
+        };
+        let bind_group = self.bind_group.as_ref();
+        let uniform_buf = self.uniform_buffer.as_ref();
+
+        // Upload push constants if we have a valid pipeline
+        if let (Some(_), Some(ub)) = (pipeline, uniform_buf) {
+            let pc = self.build_push_constants();
+            queue.write_buffer(ub, 0, pc.as_bytes());
         }
-
-        let pipeline = match self.render_pipeline.as_ref() {
-            Some(p) => p,
-            None => return,
-        };
-        let bind_group = match self.bind_group.as_ref() {
-            Some(bg) => bg,
-            None => return,
-        };
-        let uniform_buf = match self.uniform_buffer.as_ref() {
-            Some(b) => b,
-            None => return,
-        };
-
-        // Build push constants from uniform queue and upload
-        let pc = self.build_push_constants();
-        queue.write_buffer(uniform_buf, 0, pc.as_bytes());
 
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -576,13 +592,22 @@ impl ShaderPipeline {
             });
 
         {
+            // Use magenta clear so a broken pipeline is visually distinct from
+            // "nothing rendered at all" (which would remain whatever the
+            // browser's default is).
+            let clear_color = if pipeline.is_some() {
+                wgpu::Color::BLACK
+            } else {
+                wgpu::Color { r: 1.0, g: 0.0, b: 1.0, a: 1.0 }
+            };
+
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("shader_pipeline_pass_surface"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: target_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        load: wgpu::LoadOp::Clear(clear_color),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -591,9 +616,11 @@ impl ShaderPipeline {
                 occlusion_query_set: None,
             });
 
-            rpass.set_pipeline(pipeline);
-            rpass.set_bind_group(0, Some(bind_group), &[]);
-            rpass.draw(0..3, 0..1);
+            if let (Some(p), Some(bg)) = (pipeline, bind_group) {
+                rpass.set_pipeline(p);
+                rpass.set_bind_group(0, Some(bg), &[]);
+                rpass.draw(0..3, 0..1);
+            }
         }
 
         queue.submit(std::iter::once(encoder.finish()));
