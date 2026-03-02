@@ -7,13 +7,11 @@ import 'dart:ui_web' as ui_web;
 
 import '../vulkan_renderer.dart';
 
-// ---------------------------------------------------------------------------
-// JS interop bindings to the Rust WASM module (wasm-bindgen exports)
-// ---------------------------------------------------------------------------
+// JS interop — wasm-bindgen exports
 
 @JS('wasm_bindgen.init_renderer')
 external JSPromise<JSAny?> _jsInitRenderer(
-    JSString canvasId, JSNumber width, JSNumber height);
+    web.HTMLCanvasElement canvas, JSNumber width, JSNumber height);
 
 @JS('wasm_bindgen.start_render_loop')
 external void _jsStartRenderLoop();
@@ -56,17 +54,9 @@ external JSBoolean _jsAddSampler2dUniform(
 external JSBoolean _jsReplaceSampler2dUniform(
     JSString name, JSNumber width, JSNumber height, JSUint8Array val);
 
-/// Load the wasm-bindgen glue and WASM binary.
-///
-/// The generated JS glue is expected to be loaded via a `<script>` tag in
-/// `index.html` (or via `flutter_bootstrap.js`).  This function calls the
-/// default export of that glue to fetch and instantiate the `.wasm` binary.
 @JS('wasm_bindgen')
 external JSFunction get _wasmBindgenInit;
 
-// ---------------------------------------------------------------------------
-// WasmRenderer
-// ---------------------------------------------------------------------------
 
 class WasmRenderer implements VulkanRenderer {
   static final WasmRenderer instance = WasmRenderer._();
@@ -82,14 +72,7 @@ class WasmRenderer implements VulkanRenderer {
 
   static int _nextViewId = 9000;
 
-  // ------------------------------------------------------------------
-  // Lifecycle
-  // ------------------------------------------------------------------
-
-  /// Initialise the WASM module and create a canvas-backed platform view.
-  ///
-  /// This must be awaited before any other method is called.  Returns the
-  /// view id that should be passed to [HtmlElementView].
+  /// Init WASM module and create a canvas-backed platform view.
   Future<int> createSurface(int width, int height) async {
     final viewId = _nextViewId++;
     final viewType = 'flutter_vulkan_$viewId';
@@ -97,32 +80,31 @@ class WasmRenderer implements VulkanRenderer {
     _canvasWidth = width;
     _canvasHeight = height;
 
-    // Create the canvas element.
-    final canvasId = 'flutter_vulkan_canvas_$viewId';
+    // Canvas must be in the DOM for WebGPU adapter discovery
     final canvas = web.HTMLCanvasElement()
-      ..id = canvasId
       ..width = width
       ..height = height;
-    canvas.style.width = '100%';
-    canvas.style.height = '100%';
+    canvas.style
+      ..width = '100%'
+      ..height = '100%'
+      ..position = 'absolute'
+      ..left = '-9999px';
+    web.document.body!.append(canvas);
 
-    // Register with Flutter's platform view registry.
     ui_web.platformViewRegistry.registerViewFactory(viewType, (int id) {
+      canvas.style.position = '';
+      canvas.style.left = '';
       return canvas;
     });
 
-    // Load the WASM module if this is the first time.
     if (!_initialized) {
-      // Call the wasm-bindgen default export to load the .wasm binary.
-      // The glue JS picks up the `.wasm` file relative to itself.
       final promise = _wasmBindgenInit.callAsFunction(null) as JSPromise;
       await promise.toDart;
       _initialized = true;
     }
 
-    // Initialise the Rust renderer against this canvas.
     final initPromise = _jsInitRenderer(
-      canvasId.toJS,
+      canvas,
       width.toJS,
       height.toJS,
     );
@@ -131,9 +113,6 @@ class WasmRenderer implements VulkanRenderer {
     return viewId;
   }
 
-  // ------------------------------------------------------------------
-  // VulkanRenderer interface
-  // ------------------------------------------------------------------
 
   @override
   bool rendererStatus() => _running;
@@ -216,11 +195,6 @@ class WasmRenderer implements VulkanRenderer {
   @override
   double getFps() => _jsGetFps().toDartDouble;
 
-  // ------------------------------------------------------------------
-  // Uniform helpers
-  // ------------------------------------------------------------------
-
-  /// Encode a value into a raw byte buffer and call the WASM `add_uniform`.
   bool _addTypedUniform(String name, int typeIndex, Uint8List bytes) {
     return _jsAddUniform(
       name.toJS,
@@ -233,7 +207,6 @@ class WasmRenderer implements VulkanRenderer {
     return _jsSetUniform(name.toJS, bytes.toJS).toDart;
   }
 
-  // --- Encode helpers ---
 
   static Uint8List _encodeBool(bool val) {
     return Uint8List.fromList([val ? 1 : 0]);
@@ -259,9 +232,6 @@ class WasmRenderer implements VulkanRenderer {
     return bd.buffer.asUint8List();
   }
 
-  // ------------------------------------------------------------------
-  // Add uniforms
-  // ------------------------------------------------------------------
 
   @override
   bool addBoolUniform(String name, bool val) =>
@@ -309,9 +279,6 @@ class WasmRenderer implements VulkanRenderer {
     ).toDart;
   }
 
-  // ------------------------------------------------------------------
-  // Set uniforms
-  // ------------------------------------------------------------------
 
   @override
   bool setBoolUniform(String name, bool val) =>
@@ -353,9 +320,6 @@ class WasmRenderer implements VulkanRenderer {
   bool setSampler2DUniform(String name, Uint8List val) =>
       _setTypedUniform(name, val);
 
-  // ------------------------------------------------------------------
-  // Replace / remove
-  // ------------------------------------------------------------------
 
   @override
   bool replaceSampler2DUniform(
