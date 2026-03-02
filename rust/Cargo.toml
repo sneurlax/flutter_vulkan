@@ -3,6 +3,9 @@ name = "flutter_vulkan_plugin"
 version = "0.1.0"
 edition = "2021"
 
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
 [lib]
 name = "flutter_vulkan_native"
 crate-type = ["cdylib", "staticlib"]
