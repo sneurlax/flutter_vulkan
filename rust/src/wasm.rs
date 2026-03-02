@@ -18,6 +18,7 @@ struct WasmState {
     gpu: GpuContext,
     surface: wgpu::Surface<'static>,
     surface_config: wgpu::SurfaceConfiguration,
+    surface_format: wgpu::TextureFormat,
     pipeline: Option<ShaderPipeline>,
     width: u32,
     height: u32,
@@ -30,7 +31,6 @@ struct WasmState {
 
 thread_local! {
     static STATE: RefCell<Option<WasmState>> = RefCell::new(None);
-    static ANIMATION_CLOSURE: RefCell<Option<Closure<dyn FnMut()>>> = RefCell::new(None);
 }
 
 // ---------------------------------------------------------------------------
@@ -100,38 +100,34 @@ fn read_f32_array<const N: usize>(val: &[u8]) -> Option<[f32; N]> {
 // ---------------------------------------------------------------------------
 
 #[wasm_bindgen]
-pub fn init_renderer(canvas_id: &str, width: u32, height: u32) -> js_sys::Promise {
+pub fn init_renderer(canvas: web_sys::HtmlCanvasElement, width: u32, height: u32) -> js_sys::Promise {
     console_error_panic_hook::set_once();
     let _ = console_log::init_with_level(log::Level::Info);
 
-    let canvas_id = canvas_id.to_owned();
     wasm_bindgen_futures::future_to_promise(async move {
-        let canvas = web_sys::window()
-            .unwrap()
-            .document()
-            .unwrap()
-            .get_element_by_id(&canvas_id)
-            .ok_or_else(|| JsValue::from_str(&format!("Canvas '{}' not found", canvas_id)))?
-            .dyn_into::<web_sys::HtmlCanvasElement>()
-            .map_err(|_| JsValue::from_str("Element is not a canvas"))?;
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::BROWSER_WEBGPU | wgpu::Backends::GL,
             ..Default::default()
         });
 
-        let surface = instance
-            .create_surface(wgpu::SurfaceTarget::Canvas(canvas))
-            .map_err(|e| JsValue::from_str(&format!("Failed to create surface: {e}")))?;
-
+        // Request adapter FIRST (without compatible_surface) to avoid
+        // issues where some browsers fail adapter discovery when a
+        // surface is involved.
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
+                power_preference: wgpu::PowerPreference::default(),
                 force_fallback_adapter: false,
-                compatible_surface: Some(&surface),
+                compatible_surface: None,
             })
             .await
             .ok_or_else(|| JsValue::from_str("Failed to find a suitable GPU adapter"))?;
+
+        log::info!("adapter: {:?}, backend: {:?}", adapter.get_info().name, adapter.get_info().backend);
+
+        let surface = instance
+            .create_surface(wgpu::SurfaceTarget::Canvas(canvas))
+            .map_err(|e| JsValue::from_str(&format!("Failed to create surface: {e}")))?;
 
         let (device, queue) = adapter
             .request_device(
@@ -148,12 +144,14 @@ pub fn init_renderer(canvas_id: &str, width: u32, height: u32) -> js_sys::Promis
             .map_err(|e| JsValue::from_str(&format!("Failed to open GPU device: {e}")))?;
 
         let surface_caps = surface.get_capabilities(&adapter);
+        log::info!("surface caps: formats={:?}, alpha_modes={:?}", surface_caps.formats, surface_caps.alpha_modes);
         let format = surface_caps
             .formats
             .iter()
             .find(|f| f.is_srgb())
             .copied()
             .unwrap_or(surface_caps.formats[0]);
+        log::info!("selected surface format: {:?}", format);
 
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -180,6 +178,7 @@ pub fn init_renderer(canvas_id: &str, width: u32, height: u32) -> js_sys::Promis
             *cell.borrow_mut() = Some(WasmState {
                 gpu,
                 surface,
+                surface_format: format,
                 surface_config,
                 pipeline: None,
                 width,
@@ -192,7 +191,7 @@ pub fn init_renderer(canvas_id: &str, width: u32, height: u32) -> js_sys::Promis
             });
         });
 
-        log::info!("wasm renderer initialised ({}x{})", width, height);
+        log::info!("wasm renderer initialised ({}x{}, format: {:?})", width, height, format);
         Ok(JsValue::TRUE)
     })
 }
@@ -204,10 +203,13 @@ pub fn start_render_loop() {
         s.start_time = performance().now();
     });
 
-    let closure: Rc<RefCell<Option<Closure<dyn FnMut()>>>> = Rc::new(RefCell::new(None));
-    let closure_clone = closure.clone();
+    // Standard requestAnimationFrame loop pattern for Rust WASM:
+    // `f` is captured inside the closure; `g` is used outside to kick off
+    // the first frame.  Both are Rc clones pointing to the same Closure.
+    let f: Rc<RefCell<Option<Closure<dyn FnMut()>>>> = Rc::new(RefCell::new(None));
+    let g = f.clone();
 
-    *closure.borrow_mut() = Some(Closure::wrap(Box::new(move || {
+    *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
         let should_continue = STATE.with(|cell| {
             let mut borrow = cell.borrow_mut();
             let state = match borrow.as_mut() {
@@ -223,17 +225,28 @@ pub fn start_render_loop() {
                 pipeline.get_uniforms_mut()
                     .set_uniform_value("iTime", UniformValue::Float(elapsed));
 
-                // Draw to surface
-                if let Ok(output) = state.surface.get_current_texture() {
-                    let view = output
-                        .texture
-                        .create_view(&wgpu::TextureViewDescriptor::default());
-
-                    // For web, we render directly to the surface texture
-                    // by temporarily swapping the output texture view
-                    pipeline.draw_frame_to_view(&state.gpu.device, &state.gpu.queue, &view);
-                    output.present();
+                if !pipeline.pipeline_valid {
+                    if state.frame_count == 0 {
+                        log::error!("render_frame: pipeline not valid, skipping draw");
+                    }
                 }
+
+                // Draw to surface
+                match state.surface.get_current_texture() {
+                    Ok(output) => {
+                        let view = output
+                            .texture
+                            .create_view(&wgpu::TextureViewDescriptor::default());
+
+                        pipeline.draw_frame_to_view(&state.gpu.device, &state.gpu.queue, &view);
+                        output.present();
+                    }
+                    Err(e) => {
+                        log::error!("get_current_texture failed: {e:?}");
+                    }
+                }
+            } else if state.frame_count == 0 {
+                log::warn!("render_frame: no pipeline set");
             }
 
             // FPS bookkeeping
@@ -250,21 +263,13 @@ pub fn start_render_loop() {
         });
 
         if should_continue {
-            if let Some(ref cb) = *closure_clone.borrow() {
-                request_animation_frame(cb);
-            }
-        } else {
-            ANIMATION_CLOSURE.with(|c| { *c.borrow_mut() = None; });
+            request_animation_frame(f.borrow().as_ref().unwrap());
         }
     }) as Box<dyn FnMut()>));
 
-    if let Some(ref cb) = *closure.borrow() {
-        request_animation_frame(cb);
-    }
-
-    ANIMATION_CLOSURE.with(|c| {
-        *c.borrow_mut() = closure.borrow_mut().take();
-    });
+    request_animation_frame(g.borrow().as_ref().unwrap());
+    // `g` goes out of scope here but the self-referential Rc cycle
+    // (f → Closure → f) keeps the closure alive until the loop stops.
 }
 
 #[wasm_bindgen]
@@ -276,9 +281,16 @@ pub fn stop_render_loop() {
 pub fn set_shader_toy(fragment_src: &str) -> String {
     with_state(|s| {
         let mut pipeline = ShaderPipeline::new(&s.gpu.device, &s.gpu.queue, s.width, s.height);
+        pipeline.set_target_format(s.surface_format);
         pipeline.set_shaders_text("", fragment_src);
         pipeline.set_is_continuous(true);
+        log::info!("set_shader_toy: compiling with format {:?}, size {}x{}", s.surface_format, s.width, s.height);
         let err = pipeline.init_shader_toy();
+        if err.is_empty() {
+            log::info!("set_shader_toy: pipeline created OK, valid={}", pipeline.pipeline_valid);
+        } else {
+            log::error!("set_shader_toy error: {err}");
+        }
         s.pipeline = Some(pipeline);
         err
     })
@@ -288,6 +300,7 @@ pub fn set_shader_toy(fragment_src: &str) -> String {
 pub fn set_shader(is_continuous: bool, vertex_src: &str, fragment_src: &str) -> String {
     with_state(|s| {
         let mut pipeline = ShaderPipeline::new(&s.gpu.device, &s.gpu.queue, s.width, s.height);
+        pipeline.set_target_format(s.surface_format);
         pipeline.set_shaders_text(vertex_src, fragment_src);
         pipeline.set_is_continuous(is_continuous);
         let err = pipeline.init_shader();
@@ -384,18 +397,172 @@ pub fn add_sampler2d_uniform(name: &str, width: i32, height: i32, val: &[u8]) ->
         };
         let mut sampler = Sampler2D::new();
         sampler.add_rgba32(width as u32, height as u32, val);
-        pipeline.get_uniforms_mut()
-            .add_uniform(name.to_owned(), UniformValue::Sampler2D(sampler))
+        let ok = pipeline.get_uniforms_mut()
+            .add_uniform(name.to_owned(), UniformValue::Sampler2D(sampler));
+        if ok {
+            pipeline.refresh_textures();
+        }
+        ok
     })
 }
 
 #[wasm_bindgen]
 pub fn replace_sampler2d_uniform(name: &str, width: i32, height: i32, val: &[u8]) -> bool {
     with_state(|s| {
-        match s.pipeline.as_mut() {
-            Some(p) => p.get_uniforms_mut()
-                .replace_sampler2d(name, width as u32, height as u32, val),
-            None => false,
+        let pipeline = match s.pipeline.as_mut() {
+            Some(p) => p,
+            None => return false,
+        };
+        let ok = pipeline.get_uniforms_mut()
+            .replace_sampler2d(name, width as u32, height as u32, val);
+        if ok {
+            pipeline.refresh_textures();
         }
+        ok
     })
+}
+
+/// Draw a single frame using the current ShaderPipeline (no render loop).
+/// Returns a string: empty on success, error message on failure.
+#[wasm_bindgen]
+pub fn test_draw_pipeline_frame() -> String {
+    STATE.with(|cell| {
+        let mut borrow = cell.borrow_mut();
+        let state = match borrow.as_mut() {
+            Some(s) => s,
+            None => return "no state".to_string(),
+        };
+
+        let pipeline = match state.pipeline.as_mut() {
+            Some(p) => p,
+            None => return "no pipeline".to_string(),
+        };
+
+        if !pipeline.pipeline_valid {
+            return "pipeline not valid".to_string();
+        }
+
+        let output = match state.surface.get_current_texture() {
+            Ok(o) => o,
+            Err(e) => return format!("get_current_texture: {e:?}"),
+        };
+
+        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        pipeline.draw_frame_to_view(&state.gpu.device, &state.gpu.queue, &view);
+        output.present();
+        String::new()
+    })
+}
+
+/// Minimal test: draw a solid green frame using raw wgpu, bypassing ShaderPipeline.
+/// Returns true if the draw completed without errors.
+#[wasm_bindgen]
+pub fn test_draw_green() -> bool {
+    let result = STATE.with(|cell| {
+        let mut borrow = cell.borrow_mut();
+        let state = match borrow.as_mut() {
+            Some(s) => s,
+            None => { log::error!("test_draw_green: no state"); return false; }
+        };
+
+        let device = &state.gpu.device;
+        let queue = &state.gpu.queue;
+
+        // Minimal WGSL shaders
+        let shader_src = r#"
+@vertex
+fn vs_main(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
+    var pos = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -1.0),
+        vec2<f32>( 3.0, -1.0),
+        vec2<f32>(-1.0,  3.0),
+    );
+    return vec4<f32>(pos[vi], 0.0, 1.0);
+}
+
+@fragment
+fn fs_main() -> @location(0) vec4<f32> {
+    return vec4<f32>(0.0, 1.0, 0.0, 1.0);
+}
+"#;
+
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("test_green"),
+            source: wgpu::ShaderSource::Wgsl(shader_src.into()),
+        });
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[],
+            push_constant_ranges: &[],
+        });
+
+        let format = state.surface_format;
+        log::info!("test_draw_green: creating pipeline with format {:?}", format);
+
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("test_green_pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &module,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &module,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        log::info!("test_draw_green: pipeline created, getting surface texture");
+
+        let output = match state.surface.get_current_texture() {
+            Ok(o) => o,
+            Err(e) => { log::error!("test_draw_green: get_current_texture failed: {e:?}"); return false; }
+        };
+
+        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("test_green_encoder"),
+        });
+
+        {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("test_green_pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.0, g: 0.0, b: 1.0, a: 1.0 }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            rpass.set_pipeline(&pipeline);
+            rpass.draw(0..3, 0..1);
+        }
+
+        queue.submit(std::iter::once(encoder.finish()));
+        output.present();
+        log::info!("test_draw_green: frame submitted and presented");
+        true
+    });
+    result
 }
