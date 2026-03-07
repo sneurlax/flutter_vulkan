@@ -53,11 +53,13 @@ typedef struct flutter_vulkan_plugin_context
     uint8_t *buffer;
     int width;
     int height;
+    int bytesPerRow;
     void (*markFrameAvailable)(void *registryRef);
     void *registryRef;
 } VulkanPluginContext;
 static VulkanPluginContext ctx_f = {
         nullptr,
+        0,
         0,
         0,
         nullptr,
