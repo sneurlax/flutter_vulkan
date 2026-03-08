@@ -14,7 +14,7 @@ class VulkanController {
   late final FlutterVulkan vulkanPlugin;
   late final VulkanRenderer renderer;
 
-  initializeVulkan() {
+  void initializeVulkan() {
     renderer = createRenderer();
     vulkanPlugin = createVulkanPlugin();
   }

@@ -5,9 +5,6 @@ use std::time::Instant;
 use crate::gpu_context::GpuContext;
 use crate::shader_pipeline::ShaderPipeline;
 
-// ---------------------------------------------------------------------------
-// Render-thread message enum
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RenderThreadMessage {
@@ -17,9 +14,6 @@ pub enum RenderThreadMessage {
     NewTexture,
 }
 
-// ---------------------------------------------------------------------------
-// Renderer
-// ---------------------------------------------------------------------------
 
 pub struct Renderer {
     pub gpu_ctx: GpuContext,
@@ -31,12 +25,8 @@ pub struct Renderer {
     pub compile_error: Mutex<String>,
     pub width: u32,
     pub height: u32,
-    /// Raw pixel buffer owned by the platform plugin. The renderer copies
-    /// rendered pixels here after each frame so the Flutter texture can pick
-    /// them up.
-    pub buffer: *mut u8,
-    /// Optional callback the platform layer can set; invoked after new pixel
-    /// data has been written to `buffer`.
+    pub buffer: *mut u8,              // platform-owned RGBA pixel buffer
+    /// Called after each frame is written to `buffer`.
     pub frame_callback: Option<unsafe extern "C" fn(*mut std::ffi::c_void)>,
     pub frame_callback_data: *mut std::ffi::c_void,
     pub is_shader_toy: bool,
@@ -45,28 +35,16 @@ pub struct Renderer {
     pub new_shader_is_continuous: AtomicBool,
 }
 
-// SAFETY: The raw `*mut u8` buffer is provided by the platform plugin and is
-// only accessed from the render thread (inside `loop_fn`). We guarantee
-// single-threaded access to it by only touching it while the render loop mutex
-// is held.
+// SAFETY: buffer only accessed from the render thread inside loop_fn.
 unsafe impl Send for Renderer {}
 unsafe impl Sync for Renderer {}
 
-// ---------------------------------------------------------------------------
-// Global renderer instance (mirrors the C++ `Renderer *renderer = nullptr;`)
-// ---------------------------------------------------------------------------
 
-pub static mut RENDERER: Option<Box<Renderer>> = None;
+pub static RENDERER: std::sync::Mutex<Option<Box<Renderer>>> = std::sync::Mutex::new(None);
 
-// ---------------------------------------------------------------------------
-// Implementation
-// ---------------------------------------------------------------------------
 
 impl Renderer {
-    /// Create a new `Renderer`, initialising the GPU context.
-    ///
-    /// `buffer` is a pointer to platform-allocated RGBA8 pixel memory of size
-    /// `width * height * 4` bytes.
+    /// `buffer` must point to `width * height * 4` bytes of platform-owned memory.
     pub fn new(width: u32, height: u32, buffer: *mut u8) -> Result<Self, String> {
         let gpu_ctx = GpuContext::new()?;
 
@@ -90,34 +68,28 @@ impl Renderer {
         })
     }
 
-    /// Request the render loop to stop.
     pub fn stop(&self) {
         if let Ok(mut q) = self.msg.lock() {
             q.push(RenderThreadMessage::StopRenderer);
         }
     }
 
-    /// Whether the render loop is currently running.
     pub fn is_looping(&self) -> bool {
         self.loop_running.load(Ordering::SeqCst)
     }
 
-    /// Current smoothed frame rate.
     pub fn get_frame_rate(&self) -> f64 {
         self.frame_rate
     }
 
-    /// Enqueue a message telling the render loop to refresh textures.
     pub fn set_new_texture_msg(&self) {
         if let Ok(mut q) = self.msg.lock() {
             q.push(RenderThreadMessage::NewTexture);
         }
     }
 
-    /// Set a new custom shader. Blocks (spin-yields) until the render thread
-    /// has processed the message when the loop is running.
-    ///
-    /// Returns the compile error string (empty on success).
+    /// Set a new shader. Blocks until the render thread picks it up.
+    /// Returns compile error (empty on success).
     pub fn set_shader(
         &self,
         is_continuous: bool,
@@ -129,7 +101,6 @@ impl Renderer {
             ce.clear();
         }
 
-        // Store sources for the render thread to pick up.
         {
             let mut vs = self.new_shader_vertex_source.lock().unwrap();
             *vs = vertex.to_string();
@@ -141,17 +112,11 @@ impl Renderer {
         self.new_shader_is_continuous
             .store(is_continuous, Ordering::SeqCst);
 
-        // NOTE: is_shader_toy is set via interior-mutability-unfriendly bool.
-        // The caller (ffi layer) sets it directly before calling this via
-        // `&mut` or before the loop is running, so this is safe from the FFI
-        // side which holds &mut Renderer.
-
         self.msg_processed.store(false, Ordering::SeqCst);
         if let Ok(mut q) = self.msg.lock() {
             q.push(RenderThreadMessage::NewShader);
         }
 
-        // Spin-yield until the render thread processes the message.
         if self.is_looping() {
             while !self.msg_processed.load(Ordering::SeqCst) {
                 std::thread::yield_now();
@@ -161,15 +126,11 @@ impl Renderer {
         self.compile_error.lock().unwrap().clone()
     }
 
-    /// Convenience wrapper for ShaderToy shaders.
-    ///
-    /// Returns the compile error string (empty on success).
     pub fn set_shader_toy(&mut self, fragment: &str) -> String {
         self.is_shader_toy = true;
         self.set_shader(true, "", fragment)
     }
 
-    /// Set a custom (non-ShaderToy) shader via `&mut self`.
     pub fn set_shader_mut(
         &mut self,
         is_continuous: bool,
@@ -188,9 +149,7 @@ impl Renderer {
         self.shader.as_mut()
     }
 
-    // -----------------------------------------------------------------------
-    // Main render loop (meant to be called from a spawned thread)
-    // -----------------------------------------------------------------------
+    // render loop (runs on a spawned thread)
 
     pub fn loop_fn(&mut self) {
         log::info!("RENDERER: ENTERING LOOP");
@@ -199,13 +158,12 @@ impl Renderer {
         self.frame_rate = 0.0;
         let mut start_fps = Instant::now();
         let mut start_draw = Instant::now();
-        // Max ~100 FPS → minimum 10 ms between frames.
+        // ~100 FPS cap
         let max_fps_interval: f64 = 1.0 / 100.0;
 
         self.loop_running.store(true, Ordering::SeqCst);
 
         while self.loop_running.load(Ordering::SeqCst) {
-            // Pop the latest message from the queue.
             let current_msg = {
                 let mut q = self.msg.lock().unwrap();
                 if q.is_empty() {
@@ -261,11 +219,10 @@ impl Renderer {
                     let shader_continuous = self
                         .shader
                         .as_ref()
-                        .map_or(false, |s| s.is_continuous);
+                        .is_some_and(|s| s.is_continuous);
 
                     if !shader_continuous {
-                        // Nothing to do — yield briefly so we don't burn CPU.
-                        std::thread::yield_now();
+                            std::thread::yield_now();
                         continue;
                     }
 
@@ -299,7 +256,7 @@ impl Renderer {
                         start_draw = Instant::now();
                     }
 
-                    // FPS tracking — EMA smoothing every 1 second.
+                    // FPS (EMA, 1s window)
                     let elapsed_fps = start_fps.elapsed().as_secs_f64();
                     if elapsed_fps >= 1.0 {
                         self.frame_rate =

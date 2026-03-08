@@ -1,4 +1,3 @@
-library flutter_vulkan;
 
 export 'src/flutter_vulkan_api.dart';
 export 'src/flutter_vulkan_ffi.dart'
