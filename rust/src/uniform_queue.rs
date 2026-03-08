@@ -109,17 +109,11 @@ impl Default for PushConstants {
 // UniformQueue
 // ---------------------------------------------------------------------------
 
+#[derive(Default)]
 pub struct UniformQueue {
     pub uniforms: HashMap<String, UniformValue>,
 }
 
-impl Default for UniformQueue {
-    fn default() -> Self {
-        Self {
-            uniforms: HashMap::new(),
-        }
-    }
-}
 
 impl UniformQueue {
     pub fn new() -> Self {
@@ -244,7 +238,7 @@ impl UniformQueue {
     /// index and a created texture view, paired with its texture index.
     pub fn get_all_sampler2d_textures(&self) -> Vec<(i32, &Sampler2D)> {
         let mut result = Vec::new();
-        for (_name, value) in &self.uniforms {
+        for value in self.uniforms.values() {
             if let UniformValue::Sampler2D(ref sampler) = value {
                 if sampler.n_texture >= 0 && sampler.texture_view.is_some() {
                     result.push((sampler.n_texture, sampler));

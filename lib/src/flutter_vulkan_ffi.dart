@@ -471,7 +471,7 @@ class FlutterVulkanFfi implements VulkanRenderer {
   @override
   bool setMat2Uniform(String name, List<double> val) {
     ffi.Pointer<ffi.Float> valT = calloc(ffi.sizeOf<ffi.Float>() * 4);
-    for (int i = 0; i < 4; ++i) valT[i] = val[i];
+    for (int i = 0; i < 4; ++i) { valT[i] = val[i]; }
     int ret = _setUniform(
       name.toNativeUtf8().cast<ffi.Char>(),
       valT.cast<ffi.Void>(),
@@ -483,7 +483,7 @@ class FlutterVulkanFfi implements VulkanRenderer {
   @override
   bool setMat3Uniform(String name, List<double> val) {
     ffi.Pointer<ffi.Float> valT = calloc(ffi.sizeOf<ffi.Float>() * 9);
-    for (int i = 0; i < 9; ++i) valT[i] = val[i];
+    for (int i = 0; i < 9; ++i) { valT[i] = val[i]; }
     int ret = _setUniform(
       name.toNativeUtf8().cast<ffi.Char>(),
       valT.cast<ffi.Void>(),
@@ -495,7 +495,7 @@ class FlutterVulkanFfi implements VulkanRenderer {
   @override
   bool setMat4Uniform(String name, List<double> val) {
     ffi.Pointer<ffi.Float> valT = calloc(ffi.sizeOf<ffi.Float>() * 16);
-    for (int i = 0; i < 16; ++i) valT[i] = val[i];
+    for (int i = 0; i < 16; ++i) { valT[i] = val[i]; }
     int ret = _setUniform(
       name.toNativeUtf8().cast<ffi.Char>(),
       valT.cast<ffi.Void>(),

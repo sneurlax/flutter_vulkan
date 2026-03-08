@@ -56,7 +56,7 @@ unsafe impl Sync for Renderer {}
 // Global renderer instance (mirrors the C++ `Renderer *renderer = nullptr;`)
 // ---------------------------------------------------------------------------
 
-pub static mut RENDERER: Option<Box<Renderer>> = None;
+pub static RENDERER: std::sync::Mutex<Option<Box<Renderer>>> = std::sync::Mutex::new(None);
 
 // ---------------------------------------------------------------------------
 // Implementation
@@ -261,7 +261,7 @@ impl Renderer {
                     let shader_continuous = self
                         .shader
                         .as_ref()
-                        .map_or(false, |s| s.is_continuous);
+                        .is_some_and(|s| s.is_continuous);
 
                     if !shader_continuous {
                         // Nothing to do — yield briefly so we don't burn CPU.

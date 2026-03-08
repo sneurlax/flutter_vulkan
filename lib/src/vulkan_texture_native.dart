@@ -41,7 +41,7 @@ class VulkanTexture extends StatelessWidget {
               twSize,
             );
       },
-      child: LayoutBuilder(builder: (_, __) {
+      child: LayoutBuilder(builder: (_, _) {
         WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
           final box = context.findRenderObject() as RenderBox;
           twSize = box.size;
