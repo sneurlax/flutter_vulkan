@@ -161,7 +161,7 @@ impl ShaderPipeline {
     // -------------------------------------------------------- GLSL -> WGSL
 
     /// Compile a GLSL source string to WGSL via naga.
-    fn compile_glsl_to_wgsl(
+    pub(crate) fn compile_glsl_to_wgsl(
         source: &str,
         stage: naga::ShaderStage,
     ) -> Result<String, String> {
@@ -935,6 +935,50 @@ impl ShaderPipeline {
 }
 
 // ------------------------------------------------------------------ helpers
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const VERT: &str = concat!(
+        "#version 450\n",
+        "void main() {\n",
+        "    vec2 uv = vec2(float((gl_VertexIndex << 1) & 2),\n",
+        "                   float( gl_VertexIndex        & 2));\n",
+        "    gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);\n",
+        "}\n",
+    );
+
+    const FRAG: &str = concat!(
+        "#version 450\n",
+        "layout(location=0) out vec4 fragColor;\n",
+        "void main() { fragColor = vec4(1.0, 0.0, 0.0, 1.0); }\n",
+    );
+
+    #[test]
+    fn compile_vertex() {
+        let r = ShaderPipeline::compile_glsl_to_wgsl(VERT, naga::ShaderStage::Vertex);
+        assert!(r.is_ok(), "{:?}", r.err());
+    }
+
+    #[test]
+    fn compile_fragment() {
+        let r = ShaderPipeline::compile_glsl_to_wgsl(FRAG, naga::ShaderStage::Fragment);
+        assert!(r.is_ok(), "{:?}", r.err());
+    }
+
+    #[test]
+    fn compile_error_names_the_stage() {
+        let bad = "#version 450\nlayout(location=0) out vec4 o;\nvoid main() { o = !!!; }\n";
+        let r = ShaderPipeline::compile_glsl_to_wgsl(bad, naga::ShaderStage::Fragment);
+        assert!(r.is_err());
+        assert!(r.unwrap_err().contains("FRAGMENT"));
+    }
+}
 
 /// Return the current time in seconds (monotonic where possible).
 fn instant_now() -> f64 {

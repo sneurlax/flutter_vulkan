@@ -258,3 +258,71 @@ impl Drop for UniformQueue {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn add_and_get() {
+        let mut q = UniformQueue::new();
+        assert!(q.add_uniform("x", UniformValue::Float(1.5)));
+        match q.get_value("x") {
+            Some(UniformValue::Float(v)) => assert_eq!(*v, 1.5),
+            _ => panic!("expected Float"),
+        }
+    }
+
+    #[test]
+    fn add_duplicate_returns_false_and_preserves_original() {
+        let mut q = UniformQueue::new();
+        assert!(q.add_uniform("x", UniformValue::Int(1)));
+        assert!(!q.add_uniform("x", UniformValue::Int(2)));
+        match q.get_value("x") {
+            Some(UniformValue::Int(v)) => assert_eq!(*v, 1),
+            _ => panic!("expected Int(1)"),
+        }
+    }
+
+    #[test]
+    fn set_value() {
+        let mut q = UniformQueue::new();
+        q.add_uniform("t", UniformValue::Float(0.0));
+        assert!(q.set_uniform_value("t", UniformValue::Float(3.14)));
+        match q.get_value("t") {
+            Some(UniformValue::Float(v)) => assert!((v - 3.14_f32).abs() < 1e-6),
+            _ => panic!("expected Float"),
+        }
+    }
+
+    #[test]
+    fn remove() {
+        let mut q = UniformQueue::new();
+        q.add_uniform("v", UniformValue::Vec2([1.0, 2.0]));
+        assert!(q.remove_uniform("v"));
+        assert!(q.get_value("v").is_none());
+    }
+
+    #[test]
+    fn push_constants_from_uniforms() {
+        let mut q = UniformQueue::new();
+        q.add_uniform("iMouse",      UniformValue::Vec4([1.0, 2.0, 3.0, 4.0]));
+        q.add_uniform("iResolution", UniformValue::Vec3([800.0, 600.0, 0.0]));
+        q.add_uniform("iTime",       UniformValue::Float(42.0));
+
+        let pc = q.get_push_constants();
+        assert_eq!(pc.i_mouse,      [1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(pc.i_resolution, [800.0, 600.0, 0.0]);
+        assert_eq!(pc.i_time,       42.0);
+    }
+
+    #[test]
+    fn push_constants_size_is_32_bytes() {
+        // Changing this breaks the GPU UBO layout.
+        assert_eq!(std::mem::size_of::<PushConstants>(), 32);
+    }
+}
