@@ -46,6 +46,15 @@ unsafe fn renderer_ref() -> Option<&'static Renderer> {
 
 #[no_mangle]
 pub extern "C" fn createRenderer(buffer: *mut u8, width: i32, height: i32) {
+    #[cfg(target_os = "android")]
+    {
+        let _ = android_logger::init_once(
+            android_logger::Config::default()
+                .with_max_level(log::LevelFilter::Debug)
+                .with_tag("FlutterVulkanRust"),
+        );
+    }
+    #[cfg(not(target_os = "android"))]
     let _ = env_logger::try_init();
 
     // Tear down any previous renderer first.
