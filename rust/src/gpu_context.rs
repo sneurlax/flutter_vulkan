@@ -36,8 +36,14 @@ impl GpuContext {
     /// Async variant exposed on **all** targets so wasm32 callers (and tests)
     /// can await without a blocking executor.
     pub async fn new_async() -> Result<Self, String> {
+        let backends = if cfg!(target_os = "android") {
+            wgpu::Backends::VULKAN | wgpu::Backends::GL
+        } else {
+            wgpu::Backends::all()
+        };
+
         let instance = Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
+            backends,
             ..Default::default()
         });
 
@@ -47,15 +53,30 @@ impl GpuContext {
                 force_fallback_adapter: false,
                 compatible_surface: None,
             })
-            .await
-            .ok_or_else(|| "failed to find a suitable GPU adapter".to_string())?;
+            .await;
+
+        // Fall back to low-power / fallback adapter if high-performance wasn't found
+        let adapter = match adapter {
+            Some(a) => a,
+            None => {
+                log::warn!("No high-performance adapter found, trying fallback...");
+                instance
+                    .request_adapter(&wgpu::RequestAdapterOptions {
+                        power_preference: wgpu::PowerPreference::LowPower,
+                        force_fallback_adapter: false,
+                        compatible_surface: None,
+                    })
+                    .await
+                    .ok_or_else(|| "failed to find a suitable GPU adapter".to_string())?
+            }
+        };
 
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: Some("flutter_vulkan_device"),
                     required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::default(),
+                    required_limits: wgpu::Limits::downlevel_webgl2_defaults(),
                     ..Default::default()
                 },
                 None,
