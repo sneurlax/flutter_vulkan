@@ -3,9 +3,7 @@ use std::sync::Arc;
 use crate::sampler2d::Sampler2D;
 use crate::uniform_queue::{PushConstants, UniformQueue};
 
-/// Manages the wgpu render pipeline for shader execution.
-///
-/// This is the Rust replacement for the C++ `Shader` class.
+/// wgpu render pipeline for shader execution.
 pub struct ShaderPipeline {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
@@ -46,7 +44,7 @@ pub struct ShaderPipeline {
     sampler_textures: Vec<SamplerBinding>,
 }
 
-/// Holds the wgpu texture + view + sampler created for one iChannel slot.
+/// Texture + view + sampler for one iChannel slot.
 struct SamplerBinding {
     _texture: wgpu::Texture,
     view: wgpu::TextureView,
@@ -54,7 +52,7 @@ struct SamplerBinding {
 }
 
 impl ShaderPipeline {
-    /// Create a new `ShaderPipeline` with the given dimensions.
+    /// Create a pipeline with the given dimensions.
     pub fn new(
         device: &Arc<wgpu::Device>,
         queue: &Arc<wgpu::Queue>,
@@ -85,7 +83,7 @@ impl ShaderPipeline {
         }
     }
 
-    // ------------------------------------------------------------------ setters
+    // setters
 
     pub fn set_shaders_text(&mut self, vertex: &str, fragment: &str) {
         self.vertex_source = vertex.to_string();
@@ -101,17 +99,14 @@ impl ShaderPipeline {
         self.is_continuous = b;
     }
 
-    /// Set the texture format used for the render pipeline's fragment output.
-    /// Must be called before `init_shader` / `init_shader_toy` to match the
-    /// surface format on web.
+    /// Set the target texture format (call before `init_shader`).
     pub fn set_target_format(&mut self, format: wgpu::TextureFormat) {
         self.target_format = format;
     }
 
-    // -------------------------------------------------------------- uniforms
+    // uniforms
 
-    /// Add the standard ShaderToy uniforms (iMouse, iResolution, iTime,
-    /// iChannel0-3 as 4x4 black textures).
+    /// Add standard ShaderToy uniforms (iMouse, iResolution, iTime, iChannel0-3).
     pub fn add_shader_toy_uniforms(&mut self) {
         use crate::uniform_queue::UniformValue;
 
@@ -158,10 +153,10 @@ impl ShaderPipeline {
         self.is_continuous
     }
 
-    // -------------------------------------------------------- GLSL -> WGSL
+    // GLSL -> WGSL
 
-    /// Compile a GLSL source string to WGSL via naga.
-    fn compile_glsl_to_wgsl(
+    /// Compile GLSL to WGSL via naga.
+    pub(crate) fn compile_glsl_to_wgsl(
         source: &str,
         stage: naga::ShaderStage,
     ) -> Result<String, String> {
@@ -202,16 +197,11 @@ impl ShaderPipeline {
         Ok(wgsl_source)
     }
 
-    // ----------------------------------------------------- init_shader
-
-    /// Compile the stored vertex/fragment GLSL sources, create the wgpu
-    /// render pipeline and all associated resources.
-    ///
-    /// Returns an empty string on success or an error description.
+    /// Compile shaders and create the render pipeline. Returns "" on success.
     pub fn init_shader(&mut self) -> String {
         self.cleanup();
 
-        // -- compile vertex shader ------------------------------------------------
+        // compile vertex
         let vert_wgsl = match Self::compile_glsl_to_wgsl(
             &self.vertex_source,
             naga::ShaderStage::Vertex,
@@ -220,7 +210,7 @@ impl ShaderPipeline {
             Err(e) => return e,
         };
 
-        // -- compile fragment shader ----------------------------------------------
+        // compile fragment
         let frag_wgsl = match Self::compile_glsl_to_wgsl(
             &self.fragment_source,
             naga::ShaderStage::Fragment,
@@ -229,10 +219,7 @@ impl ShaderPipeline {
             Err(e) => return e,
         };
 
-        // On WebGPU (WASM), Dawn/Tint enforces derivative uniformity analysis
-        // which rejects textureSample / dpdx / dpdy in non-uniform control flow.
-        // ShaderToy shaders commonly violate this.  The WGSL diagnostic directive
-        // tells the validator to accept these calls everywhere.
+        // Dawn rejects derivative ops in non-uniform control flow; disable the check.
         #[cfg(target_arch = "wasm32")]
         let frag_wgsl = format!("diagnostic(off, derivative_uniformity);\n{frag_wgsl}");
 
@@ -254,23 +241,7 @@ impl ShaderPipeline {
                 source: wgpu::ShaderSource::Wgsl(frag_wgsl.into()),
             });
 
-        // -- bind group layout ----------------------------------------------------
-        // Naga translates combined GLSL `sampler2D` into a (texture, sampler) pair.
-        // With GLSL bindings 0-3 for the four combined image samplers the
-        // generated WGSL will use bindings 0-7 (texture at even, sampler at odd).
-        // Binding 4 in GLSL (the uniform buffer) becomes binding 8 in WGSL after
-        // naga's splitting of the four combined samplers.
-        //
-        // Layout:
-        //   0  texture_2d<f32>  (iChannel0)
-        //   1  sampler          (iChannel0)
-        //   2  texture_2d<f32>  (iChannel1)
-        //   3  sampler          (iChannel1)
-        //   4  texture_2d<f32>  (iChannel2)
-        //   5  sampler          (iChannel2)
-        //   6  texture_2d<f32>  (iChannel3)
-        //   7  sampler          (iChannel3)
-        //   8  uniform buffer   (PushConstants)
+        // Bindings 0-7: texture/sampler pairs for iChannel0-3, binding 8: UBO
 
         let bind_group_layout =
             self.device
@@ -279,7 +250,7 @@ impl ShaderPipeline {
                     entries: &Self::bind_group_layout_entries(),
                 });
 
-        // -- pipeline layout ------------------------------------------------------
+        // pipeline layout
         let pipeline_layout =
             self.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -288,7 +259,7 @@ impl ShaderPipeline {
                     push_constant_ranges: &[],
                 });
 
-        // -- render pipeline ------------------------------------------------------
+        // render pipeline
         let render_pipeline =
             self.device
                 .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -325,7 +296,7 @@ impl ShaderPipeline {
                     cache: None,
                 });
 
-        // -- output texture (offscreen render target) -----------------------------
+        // offscreen render target
         let output_texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("shader_pipeline_output"),
             size: wgpu::Extent3d {
@@ -344,8 +315,7 @@ impl ShaderPipeline {
         let output_texture_view =
             output_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        // -- readback buffer (native only) ----------------------------------------
-        // On WASM we render directly to the surface, so no readback is needed.
+        // readback buffer (native only, WASM renders to surface directly)
         #[cfg(not(target_arch = "wasm32"))]
         let output_buffer = {
             let bytes_per_row = self.width * 4;
@@ -359,7 +329,7 @@ impl ShaderPipeline {
             })
         };
 
-        // -- uniform buffer -------------------------------------------------------
+        // uniform buffer
         let uniform_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("shader_pipeline_uniforms"),
             size: std::mem::size_of::<PushConstants>() as u64,
@@ -367,7 +337,7 @@ impl ShaderPipeline {
             mapped_at_creation: false,
         });
 
-        // -- sampler textures + bind group ----------------------------------------
+        // sampler textures + bind group
         self.uniform_queue
             .set_all_sampler2d(&self.device, &self.queue);
 
@@ -379,7 +349,7 @@ impl ShaderPipeline {
             &uniform_buffer,
         );
 
-        // -- store everything -----------------------------------------------------
+        // store everything
         self.render_pipeline = Some(render_pipeline);
         self.pipeline_layout = Some(pipeline_layout);
         self.bind_group_layout = Some(bind_group_layout);
@@ -404,14 +374,9 @@ impl ShaderPipeline {
         String::new()
     }
 
-    // --------------------------------------------------- init_shader_toy
-
-    /// Generate the ShaderToy vertex + fragment wrapper, add uniforms, and
-    /// call `init_shader`.
+    /// Wrap a ShaderToy fragment in the vertex/uniform boilerplate and compile.
     pub fn init_shader_toy(&mut self) -> String {
-        // Full-screen triangle vertex shader in WGSL (bypasses naga GLSL
-        // conversion for the vertex stage since this is a fixed utility
-        // shader).
+        // Full-screen triangle vertex shader
         self.vertex_source = concat!(
             "#version 450\n",
             "void main() {\n",
@@ -421,10 +386,8 @@ impl ShaderPipeline {
         )
         .to_string();
 
-        // Wrap the user's ShaderToy GLSL with header/footer.
-        // naga does not support combined `uniform sampler2D` in GLSL, so we
-        // use separated texture2D + sampler declarations and reconstruct
-        // combined samplers via #define macros.
+        // Wrap user GLSL with separated texture/sampler declarations
+        // (naga doesn't support combined sampler2D)
         let header = concat!(
             "#version 450\n",
             "layout(set=0, binding=8) uniform PushConstants {\n",
@@ -463,10 +426,7 @@ impl ShaderPipeline {
         self.init_shader()
     }
 
-    // -------------------------------------------------------- draw_frame
-
-    /// Render a single frame to the offscreen texture and copy the result
-    /// to the readback buffer.
+    /// Render a frame to the offscreen texture and copy to readback buffer.
     pub fn draw_frame(&mut self) {
         if !self.pipeline_valid {
             return;
@@ -497,14 +457,14 @@ impl ShaderPipeline {
             None => return,
         };
 
-        // Update iTime
+        // update iTime
         let elapsed = instant_now() - self.start_time;
         self.uniform_queue.set_uniform_value(
             "iTime",
             crate::uniform_queue::UniformValue::Float(elapsed as f32),
         );
 
-        // Build push constants from uniform queue
+        // push constants
         let pc = self.build_push_constants();
         self.queue.write_buffer(uniform_buf, 0, pc.as_bytes());
 
@@ -514,7 +474,7 @@ impl ShaderPipeline {
                 label: Some("shader_pipeline_encoder"),
             });
 
-        // Render pass
+        // render pass
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("shader_pipeline_pass"),
@@ -536,9 +496,8 @@ impl ShaderPipeline {
             rpass.draw(0..3, 0..1);
         }
 
-        // Copy texture to readback buffer
+        // copy to readback (rows must be 256-byte aligned)
         let bytes_per_row = self.width * 4;
-        // wgpu requires rows aligned to 256 bytes
         let padded_bytes_per_row = (bytes_per_row + 255) & !255;
 
         encoder.copy_texture_to_buffer(
@@ -566,20 +525,14 @@ impl ShaderPipeline {
         self.queue.submit(std::iter::once(encoder.finish()));
     }
 
-    // ------------------------------------------------ draw_frame_to_view
-
-    /// Render a single frame directly to the provided texture view (e.g. a
-    /// surface texture).  Unlike `draw_frame`, this does **not** copy to the
-    /// readback buffer — it is intended for the web path where the surface
-    /// texture is presented directly.
+    /// Render directly to the given view (e.g. surface texture). No readback.
     pub fn draw_frame_to_view(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         target_view: &wgpu::TextureView,
     ) {
-        // Even if the pipeline is invalid, clear to magenta so we can
-        // distinguish "pipeline broken" (magenta) from "no rendering" (black).
+        // Magenta clear = broken pipeline, black = working
         let pipeline = match (self.pipeline_valid, self.render_pipeline.as_ref()) {
             (true, Some(p)) => Some(p),
             _ => None,
@@ -587,7 +540,7 @@ impl ShaderPipeline {
         let bind_group = self.bind_group.as_ref();
         let uniform_buf = self.uniform_buffer.as_ref();
 
-        // Upload push constants if we have a valid pipeline
+        // upload push constants
         if let (Some(_), Some(ub)) = (pipeline, uniform_buf) {
             let pc = self.build_push_constants();
             queue.write_buffer(ub, 0, pc.as_bytes());
@@ -599,9 +552,6 @@ impl ShaderPipeline {
             });
 
         {
-            // Use magenta clear so a broken pipeline is visually distinct from
-            // "nothing rendered at all" (which would remain whatever the
-            // browser's default is).
             let clear_color = if pipeline.is_some() {
                 wgpu::Color::BLACK
             } else {
@@ -633,12 +583,7 @@ impl ShaderPipeline {
         queue.submit(std::iter::once(encoder.finish()));
     }
 
-    // ------------------------------------------------------- read_pixels
-
-    /// Map the readback buffer and return RGBA pixel data.
-    ///
-    /// This blocks until the GPU work has completed.  Returns `None` if the
-    /// pipeline is not valid or if mapping fails.
+    /// Map the readback buffer and return RGBA pixels. Blocks until GPU is done.
     pub fn read_pixels(&self) -> Option<Vec<u8>> {
         let output_buf = self.output_buffer.as_ref()?;
 
@@ -661,7 +606,7 @@ impl ShaderPipeline {
 
         let mapped = buffer_slice.get_mapped_range();
 
-        // Remove row padding if present
+        // strip row padding
         let pixels = if padded_bytes_per_row != bytes_per_row {
             let mut out = Vec::with_capacity((bytes_per_row * self.height) as usize);
             for row in 0..self.height {
@@ -680,10 +625,7 @@ impl ShaderPipeline {
         Some(pixels)
     }
 
-    // ------------------------------------------------- refresh_textures
-
-    /// Re-create sampler textures from the uniform queue and rebuild the
-    /// bind group.
+    /// Rebuild sampler textures and bind group from current uniform queue.
     pub fn refresh_textures(&mut self) {
         self.uniform_queue
             .set_all_sampler2d(&self.device, &self.queue);
@@ -704,9 +646,7 @@ impl ShaderPipeline {
         self.bind_group = Some(bind_group);
     }
 
-    // ---------------------------------------------------------- cleanup
-
-    /// Release all GPU resources held by this pipeline.
+    /// Release all GPU resources.
     pub fn cleanup(&mut self) {
         self.pipeline_valid = false;
 
@@ -728,9 +668,9 @@ impl ShaderPipeline {
         self.sampler_textures.clear();
     }
 
-    // ============================================================ private
+    // private
 
-    /// Build the bind group layout entries (bindings 0-8).
+    /// Bind group layout entries (bindings 0-8).
     fn bind_group_layout_entries() -> [wgpu::BindGroupLayoutEntry; 9] {
         let tex_entry = |binding: u32| wgpu::BindGroupLayoutEntry {
             binding,
@@ -773,9 +713,7 @@ impl ShaderPipeline {
         ]
     }
 
-    /// Create placeholder `SamplerBinding`s for iChannel0-3 from the
-    /// uniform queue's `Sampler2D` entries.  Falls back to a 1x1 black
-    /// texture if the sampler has no wgpu resources yet.
+    /// Create `SamplerBinding`s for iChannel0-3, falling back to 1x1 black.
     fn create_sampler_bindings(&self) -> Vec<SamplerBinding> {
         let channel_names = ["iChannel0", "iChannel1", "iChannel2", "iChannel3"];
         let mut bindings = Vec::with_capacity(4);
@@ -785,17 +723,8 @@ impl ShaderPipeline {
 
             if let Some(s) = maybe_sampler {
                 if let (Some(tv), Some(samp)) = (s.texture_view.as_ref(), s.sampler.as_ref()) {
-                    // Re-use the Sampler2D's existing wgpu view/sampler by
-                    // creating trivial bindings that reference the same GPU
-                    // resources.  However wgpu bind groups take owned
-                    // references so we need to create new view/sampler handles
-                    // that point to the same underlying texture.
-                    //
-                    // Since Sampler2D already holds the texture alive we can
-                    // simply create a new view from the existing texture.
                     let texture = s.texture.as_ref().unwrap();
                     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-                    // Re-use the same sampler descriptor.
                     let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
                         label: Some("ichannel_sampler"),
                         address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -807,23 +736,9 @@ impl ShaderPipeline {
                         ..Default::default()
                     });
 
-                    // We need to keep a reference-counted texture alive.
-                    // Create a dummy 1x1 texture just to satisfy SamplerBinding's
-                    // field -- but we already have the real view from the
-                    // Sampler2D's texture.
-                    //
-                    // Actually, re-create from the Sampler2D pixel data would
-                    // be redundant.  We can store a dummy since the view is
-                    // what matters for the bind group.  But we already created
-                    // `view` from `texture` which is owned by the Sampler2D.
-                    // To keep things simple and self-contained, create our own
-                    // small copy.  The Sampler2D already cleared its CPU data
-                    // after upload, so we just make a 1x1 fallback for the
-                    // _texture field and use the real view/sampler.
-                    //
-                    // Better approach: just store the already-created view.
-                    let _ = tv; // suppress unused warning
-                    let _ = samp;
+                    // _texture field just keeps something alive; the real
+                    // view/sampler come from the Sampler2D's texture above.
+                    let _ = (tv, samp);
 
                     bindings.push(SamplerBinding {
                         _texture: self.create_fallback_texture(),
@@ -893,14 +808,13 @@ impl ShaderPipeline {
         tex
     }
 
-    /// Create the bind group from sampler bindings and uniform buffer.
+    /// Build the bind group (bindings 0-7 = textures/samplers, 8 = UBO).
     fn create_bind_group(
         &self,
         layout: &wgpu::BindGroupLayout,
         samplers: &[SamplerBinding],
         uniform_buf: &wgpu::Buffer,
     ) -> wgpu::BindGroup {
-        // Build entries: 0-7 are texture/sampler pairs, 8 is uniform buffer
         let mut entries: Vec<wgpu::BindGroupEntry> = Vec::with_capacity(9);
 
         for (i, sb) in samplers.iter().enumerate() {
@@ -928,15 +842,54 @@ impl ShaderPipeline {
         })
     }
 
-    /// Collect push-constant values from the uniform queue.
     fn build_push_constants(&self) -> PushConstants {
         self.uniform_queue.get_push_constants()
     }
 }
 
-// ------------------------------------------------------------------ helpers
+// tests
 
-/// Return the current time in seconds (monotonic where possible).
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const VERT: &str = concat!(
+        "#version 450\n",
+        "void main() {\n",
+        "    vec2 uv = vec2(float((gl_VertexIndex << 1) & 2),\n",
+        "                   float( gl_VertexIndex        & 2));\n",
+        "    gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);\n",
+        "}\n",
+    );
+
+    const FRAG: &str = concat!(
+        "#version 450\n",
+        "layout(location=0) out vec4 fragColor;\n",
+        "void main() { fragColor = vec4(1.0, 0.0, 0.0, 1.0); }\n",
+    );
+
+    #[test]
+    fn compile_vertex() {
+        let r = ShaderPipeline::compile_glsl_to_wgsl(VERT, naga::ShaderStage::Vertex);
+        assert!(r.is_ok(), "{:?}", r.err());
+    }
+
+    #[test]
+    fn compile_fragment() {
+        let r = ShaderPipeline::compile_glsl_to_wgsl(FRAG, naga::ShaderStage::Fragment);
+        assert!(r.is_ok(), "{:?}", r.err());
+    }
+
+    #[test]
+    fn compile_error_names_the_stage() {
+        let bad = "#version 450\nlayout(location=0) out vec4 o;\nvoid main() { o = !!!; }\n";
+        let r = ShaderPipeline::compile_glsl_to_wgsl(bad, naga::ShaderStage::Fragment);
+        assert!(r.is_err());
+        assert!(r.unwrap_err().contains("FRAGMENT"));
+    }
+}
+
+/// Current time in seconds.
 fn instant_now() -> f64 {
     #[cfg(not(target_arch = "wasm32"))]
     {

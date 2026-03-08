@@ -4,9 +4,7 @@ use bytemuck::{Pod, Zeroable};
 
 use crate::sampler2d::Sampler2D;
 
-// ---------------------------------------------------------------------------
-// Uniform type discriminant (mirrors the C++ UniformType enum)
-// ---------------------------------------------------------------------------
+// Uniform type discriminant
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UniformType {
@@ -22,9 +20,6 @@ pub enum UniformType {
     Sampler2D,
 }
 
-// ---------------------------------------------------------------------------
-// Simple vec / mat value types
-// ---------------------------------------------------------------------------
 
 pub type Vec2 = [f32; 2];
 pub type Vec3 = [f32; 3];
@@ -33,9 +28,6 @@ pub type Mat2 = [f32; 4];
 pub type Mat3 = [f32; 9];
 pub type Mat4 = [f32; 16];
 
-// ---------------------------------------------------------------------------
-// UniformValue – a tagged union of all possible uniform payloads
-// ---------------------------------------------------------------------------
 
 pub enum UniformValue {
     Bool(bool),
@@ -51,7 +43,6 @@ pub enum UniformValue {
 }
 
 impl UniformValue {
-    /// Return the type discriminant for this value.
     pub fn uniform_type(&self) -> UniformType {
         match self {
             UniformValue::Bool(_) => UniformType::Bool,
@@ -68,24 +59,17 @@ impl UniformValue {
     }
 }
 
-// ---------------------------------------------------------------------------
-// PushConstants – ShaderToy built-in uniforms, passed via push constants.
-// Must be exactly 32 bytes and satisfy Pod requirements.
-// ---------------------------------------------------------------------------
+/// ShaderToy built-in uniforms (must be exactly 32 bytes, Pod).
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct PushConstants {
-    /// iMouse (vec4) – 16 bytes
-    pub i_mouse: [f32; 4],
-    /// iResolution (vec3) – 12 bytes
-    pub i_resolution: [f32; 3],
-    /// iTime (float) – 4 bytes
-    pub i_time: f32,
+    pub i_mouse: [f32; 4],       // vec4, 16 bytes
+    pub i_resolution: [f32; 3], // vec3, 12 bytes
+    pub i_time: f32,             // float, 4 bytes
 }
 
-// SAFETY: PushConstants is #[repr(C)], contains only f32 (which is Pod),
-// has no padding (4*4 + 3*4 + 1*4 = 32 bytes), and every bit pattern is valid.
+// SAFETY: #[repr(C)], all f32, no padding, all bit patterns valid.
 unsafe impl Zeroable for PushConstants {}
 unsafe impl Pod for PushConstants {}
 
@@ -105,9 +89,6 @@ impl Default for PushConstants {
     }
 }
 
-// ---------------------------------------------------------------------------
-// UniformQueue
-// ---------------------------------------------------------------------------
 
 #[derive(Default)]
 pub struct UniformQueue {
@@ -120,14 +101,10 @@ impl UniformQueue {
         Self::default()
     }
 
-    // -- basic CRUD --------------------------------------------------------
-
-    /// Look up a uniform value by name.
     pub fn get_value(&self, name: &str) -> Option<&UniformValue> {
         self.uniforms.get(name)
     }
 
-    /// Look up a Sampler2D uniform by name.
     pub fn get_sampler2d(&self, name: &str) -> Option<&Sampler2D> {
         match self.uniforms.get(name) {
             Some(UniformValue::Sampler2D(ref s)) => Some(s),
@@ -135,7 +112,7 @@ impl UniformQueue {
         }
     }
 
-    /// Add a uniform. Returns `false` if a uniform with `name` already exists.
+    /// Returns `false` if `name` already exists.
     pub fn add_uniform(&mut self, name: impl Into<String>, value: UniformValue) -> bool {
         let name = name.into();
         if self.uniforms.contains_key(&name) {
@@ -146,8 +123,7 @@ impl UniformQueue {
         true
     }
 
-    /// Remove a uniform. Returns `false` if the name was not found.
-    /// Automatically destroys wgpu resources for Sampler2D uniforms.
+    /// Remove a uniform, destroying any GPU resources.
     pub fn remove_uniform(&mut self, name: &str) -> bool {
         match self.uniforms.remove(name) {
             Some(UniformValue::Sampler2D(mut s)) => {
@@ -162,10 +138,7 @@ impl UniformQueue {
         }
     }
 
-    /// Overwrite the value of an existing uniform.
-    /// For Sampler2D uniforms the provided `value` must also be `Sampler2D`;
-    /// alternatively, use `replace_sampler2d` for raw-data replacement.
-    /// Returns `false` if the uniform was not found.
+    /// Overwrite an existing uniform's value.
     pub fn set_uniform_value(&mut self, name: &str, value: UniformValue) -> bool {
         match self.uniforms.get_mut(name) {
             Some(slot) => {
@@ -179,10 +152,7 @@ impl UniformQueue {
         }
     }
 
-    // -- push constants ----------------------------------------------------
-
-    /// Build a `PushConstants` struct from the stored iMouse, iResolution and
-    /// iTime uniforms (falling back to zero when not present).
+    /// Gather push constants from stored uniforms (zero-fills missing ones).
     pub fn get_push_constants(&self) -> PushConstants {
         let mut pc = PushConstants::default();
 
@@ -199,11 +169,7 @@ impl UniformQueue {
         pc
     }
 
-    // -- sampler2D helpers -------------------------------------------------
-
-    /// Create wgpu textures for every Sampler2D uniform that has pixel data.
-    /// Assigns sequential `n_texture` indices to samplers that don't have one
-    /// yet (n_texture == -1).
+    /// Upload wgpu textures for all Sampler2D uniforms with pixel data.
     pub fn set_all_sampler2d(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         let mut n: i32 = 0;
         for (_name, value) in self.uniforms.iter_mut() {
@@ -221,9 +187,7 @@ impl UniformQueue {
         }
     }
 
-    /// Replace the pixel data of an existing Sampler2D uniform.
-    /// Returns `false` if the name is not found or the uniform is not a
-    /// Sampler2D.
+    /// Replace pixel data of an existing Sampler2D uniform.
     pub fn replace_sampler2d(&mut self, name: &str, w: u32, h: u32, raw_data: &[u8]) -> bool {
         match self.uniforms.get_mut(name) {
             Some(UniformValue::Sampler2D(ref mut sampler)) => {
@@ -234,8 +198,7 @@ impl UniformQueue {
         }
     }
 
-    /// Return references to every Sampler2D uniform that has a valid texture
-    /// index and a created texture view, paired with its texture index.
+    /// All Sampler2D uniforms with uploaded textures, paired with their index.
     pub fn get_all_sampler2d_textures(&self) -> Vec<(i32, &Sampler2D)> {
         let mut result = Vec::new();
         for value in self.uniforms.values() {
@@ -256,5 +219,70 @@ impl Drop for UniformQueue {
                 sampler.destroy();
             }
         }
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn add_and_get() {
+        let mut q = UniformQueue::new();
+        assert!(q.add_uniform("x", UniformValue::Float(1.5)));
+        match q.get_value("x") {
+            Some(UniformValue::Float(v)) => assert_eq!(*v, 1.5),
+            _ => panic!("expected Float"),
+        }
+    }
+
+    #[test]
+    fn add_duplicate_returns_false_and_preserves_original() {
+        let mut q = UniformQueue::new();
+        assert!(q.add_uniform("x", UniformValue::Int(1)));
+        assert!(!q.add_uniform("x", UniformValue::Int(2)));
+        match q.get_value("x") {
+            Some(UniformValue::Int(v)) => assert_eq!(*v, 1),
+            _ => panic!("expected Int(1)"),
+        }
+    }
+
+    #[test]
+    fn set_value() {
+        let mut q = UniformQueue::new();
+        q.add_uniform("t", UniformValue::Float(0.0));
+        assert!(q.set_uniform_value("t", UniformValue::Float(3.14)));
+        match q.get_value("t") {
+            Some(UniformValue::Float(v)) => assert!((v - 3.14_f32).abs() < 1e-6),
+            _ => panic!("expected Float"),
+        }
+    }
+
+    #[test]
+    fn remove() {
+        let mut q = UniformQueue::new();
+        q.add_uniform("v", UniformValue::Vec2([1.0, 2.0]));
+        assert!(q.remove_uniform("v"));
+        assert!(q.get_value("v").is_none());
+    }
+
+    #[test]
+    fn push_constants_from_uniforms() {
+        let mut q = UniformQueue::new();
+        q.add_uniform("iMouse",      UniformValue::Vec4([1.0, 2.0, 3.0, 4.0]));
+        q.add_uniform("iResolution", UniformValue::Vec3([800.0, 600.0, 0.0]));
+        q.add_uniform("iTime",       UniformValue::Float(42.0));
+
+        let pc = q.get_push_constants();
+        assert_eq!(pc.i_mouse,      [1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(pc.i_resolution, [800.0, 600.0, 0.0]);
+        assert_eq!(pc.i_time,       42.0);
+    }
+
+    #[test]
+    fn push_constants_size_is_32_bytes() {
+        // Changing this breaks the GPU UBO layout.
+        assert_eq!(std::mem::size_of::<PushConstants>(), 32);
     }
 }
