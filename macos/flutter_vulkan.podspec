@@ -10,7 +10,7 @@ Pod::Spec.new do |s|
   s.author           = { 'sneurlax' => 'sneurlax@gmail.com' }
   s.source           = { :path => '.' }
 
-  s.source_files = 'Classes/**/*.swift', 'Classes/include/**/*.h', 'src/**/*.{cpp,h}'
+  s.source_files = 'Classes/**/*.swift', 'Classes/include/**/*.h'
   s.public_header_files = 'Classes/include/flutter_vulkan_bridge.h'
 
   s.dependency 'FlutterMacOS'
