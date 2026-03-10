@@ -1,11 +1,20 @@
 import Flutter
 import CoreVideo
 
+// Frame callback (C-compatible, no captures)
+private func frameAvailableCallback(_ userData: UnsafeMutableRawPointer?) {
+    guard let ref = userData else { return }
+    let info = Unmanaged<TextureRegistryInfo>.fromOpaque(ref).takeUnretainedValue()
+    DispatchQueue.main.async {
+        info.registry.textureFrameAvailable(info.textureId)
+    }
+}
+
 public class FlutterVulkanPlugin: NSObject, FlutterPlugin {
     private var textureRegistry: FlutterTextureRegistry?
     private var vulkanTexture: VulkanFlutterTexture?
     private var textureId: Int64 = -1
-    private var pluginContextPtr: UnsafeMutablePointer<VulkanPluginContext>?
+    private var registryInfo: TextureRegistryInfo?
 
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(
@@ -26,53 +35,33 @@ public class FlutterVulkanPlugin: NSObject, FlutterPlugin {
                   width > 0, height > 0 else {
                 result(FlutterError(
                     code: "100",
-                    message: "createSurface() called without valid width and height parameters!",
+                    message: "Invalid dimensions",
                     details: nil
                 ))
                 return
             }
 
-            // Clean up previous texture if any
+            // Clean up previous texture
             if textureId >= 0 {
                 if getRenderer() != nil {
                     stopThread()
                 }
                 textureRegistry?.unregisterTexture(textureId)
-                pluginContextPtr?.deallocate()
-                pluginContextPtr = nil
+                registryInfo = nil
             }
 
-            // Create the Flutter texture
             vulkanTexture = VulkanFlutterTexture(width: width, height: height)
             textureId = textureRegistry!.register(vulkanTexture!)
-
-            // Create the registry info and store as opaque pointer
-            let registryInfo = TextureRegistryInfo(
+            let info = TextureRegistryInfo(
                 registry: textureRegistry!,
                 textureId: textureId
             )
-            vulkanTexture!.registryInfo = registryInfo
-            let opaqueRef = Unmanaged.passUnretained(registryInfo).toOpaque()
+            vulkanTexture!.registryInfo = info
+            registryInfo = info
+            let opaqueRef = Unmanaged.passUnretained(info).toOpaque()
 
-            // Heap-allocate the plugin context so the pointer remains valid
-            // for the C++ render thread's entire lifetime
-            pluginContextPtr = .allocate(capacity: 1)
-            pluginContextPtr!.initialize(to: VulkanPluginContext(
-                buffer: vulkanTexture!.pixelBufferBase,
-                width: Int32(width),
-                height: Int32(height),
-                bytesPerRow: Int32(vulkanTexture!.bytesPerRow),
-                markFrameAvailable: { registryRef in
-                    guard let ref = registryRef else { return }
-                    let info = Unmanaged<TextureRegistryInfo>.fromOpaque(ref).takeUnretainedValue()
-                    DispatchQueue.main.async {
-                        info.registry.textureFrameAvailable(info.textureId)
-                    }
-                },
-                registryRef: UnsafeMutableRawPointer(opaqueRef)
-            ))
-
-            createRenderer(pluginContextPtr!)
+            createRenderer(vulkanTexture!.pixelBufferBase, Int32(width), Int32(height))
+            setFrameCallback(frameAvailableCallback, opaqueRef)
 
             result(textureId)
 
