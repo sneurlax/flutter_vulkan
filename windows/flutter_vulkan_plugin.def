@@ -1,0 +1,32 @@
+LIBRARY flutter_vulkan_plugin
+EXPORTS
+    ; Plugin entry point
+    FlutterVulkanPluginRegisterWithRegistrar
+
+    ; Rust FFI – renderer lifecycle
+    createRenderer
+    deleteRenderer
+    getRenderer
+    rendererStatus
+    getTextureSize
+    startThread
+    stopThread
+    setFrameCallback
+
+    ; Rust FFI – shaders
+    setShader
+    setShaderToy
+    getVertexShader
+    getFragmentShader
+    addShaderToyUniforms
+
+    ; Rust FFI – input
+    setMousePosition
+    getFPS
+
+    ; Rust FFI – uniforms
+    addUniform
+    removeUniform
+    setUniform
+    addSampler2DUniform
+    replaceSampler2DUniform
