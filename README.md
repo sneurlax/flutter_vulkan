@@ -1,15 +1,15 @@
 # flutter_vulkan
 
-Flutter plugin for GPU-accelerated shader rendering. Runs GLSL fragment shaders
-(including ShaderToy-compatible shaders) on all major platforms.
+Flutter plugin for GPU-accelerated shader rendering with Vulkan.  Runs GLSL fragment shaders (including ShaderToy-compatible shaders) on all major platforms.
 
-| Platform | Backend | Status |
-|----------|---------|--------|
-| Linux    | Vulkan  | ✓      |
-| macOS    | MoltenVK | ✓    |
-| iOS      | MoltenVK | ✓    |
-| Android  | Vulkan  | ✓      |
-| Web      | WebGL2  | ✓      |
+| Platform | Backend  | Status |
+|----------|----------|--------|
+| Android  | Vulkan   | ✓      |
+| iOS      | MoltenVK | ✓      |
+| Linux    | Vulkan   | ✓      |
+| macOS    | MoltenVK | ✓      |
+| Web      | WebGL2   | ✓      |
+| Windows  | Vulkan   | ✓      |
 
 ## Usage
 
@@ -28,14 +28,21 @@ VulkanController().renderer.startThread();
 VulkanTexture(id: textureId)
 ```
 
+## Requirements
+
+- **Flutter** 3.38.5 or newer
+- **Rust** 1.94.0 or newer
+
 ## Platform requirements
 
+- **Android**: `minSdk 24`, arm64-v8a, Vulkan-capable device
+- **iOS 13+**: arm64 only
 - **Linux**: Vulkan driver, `libshaderc` (bundled)
 - **macOS 11+**: arm64 only (Apple Silicon)
-- **iOS 13+**: arm64 only
-- **Android**: `minSdk 24`, arm64-v8a, Vulkan-capable device
 - **Web**: Browser with WebGL2 support
+- **Windows 10+**: Vulkan-capable GPU and driver; Visual Studio Build Tools with the "Desktop development with C++" workload (MSVC, CMake, Windows SDK)
+- **WSL2**: `ninja-build build-essential pkg-config libgtk-3-dev clang`
 
 ## License
 
-BSD 3-Clause. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
