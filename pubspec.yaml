@@ -34,6 +34,8 @@ flutter:
         pluginClass: FlutterVulkanPlugin
       ios:
         pluginClass: FlutterVulkanPlugin
+      windows:
+        pluginClass: FlutterVulkanPlugin
       web:
         pluginClass: FlutterVulkanWeb
         fileName: src/flutter_vulkan_web_plugin.dart
